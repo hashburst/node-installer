@@ -1,0 +1,15 @@
+[Unit]
+Description=HashBurst Admin Panel (localhost:8088 — SSH tunnel only)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/hashburst-panel/panel.py
+Restart=always
+RestartSec=3
+User=root
+EnvironmentFile=-/etc/hashburst/env
+ReadWritePaths=/var/lib/hashburst /var/log/hashburst
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,52 @@
+name: CI — HashBurst Node
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-go:
+    name: Build & Test Go Node
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build blockchain node
+        run: |
+          cd blockchain/GO
+          go mod tidy
+          go build -o hashburst-node .
+          ls -lh hashburst-node
+
+      - name: Build HVM framework
+        run: |
+          cd blockchain-hvm-framework
+          go mod tidy
+          go build -o hashburst-hvm .
+
+  lint-python:
+    name: Lint Python services
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint HB-TEP and panel
+        run: ruff check node-installer/opt/ --ignore E501,E302
+
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y shellcheck
+      - run: shellcheck node-installer/install.sh
