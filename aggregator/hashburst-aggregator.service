@@ -1,0 +1,18 @@
+[Unit]
+Description=HashBurst Storage Network Aggregator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/hashburst-files
+ExecStart=/usr/bin/python3 /opt/hashburst-files/hb_aggregator_server.py
+Restart=always
+RestartSec=10
+User=root
+Environment=HB_STORAGE_NODES=/etc/hashburst/storage-nodes.json
+Environment=HB_AGGREGATOR_PORT=8094
+Environment=HB_AGGREGATOR_TIMEOUT=3
+
+[Install]
+WantedBy=multi-user.target

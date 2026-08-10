@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HB-Files — Cloud Sovrano</title>
+<style>
+:root{--bg:#0D1117;--surface:#161B22;--surface2:#1C2128;--border:#30363D;
+--blue:#2E86C1;--bl:#58A6FF;--green:#3FB950;--red:#F85149;--amber:#D29922;
+--text:#E6EDF3;--muted:#8B949E}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,sans-serif;min-height:100vh}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;
+display:flex;align-items:center;justify-content:space-between;height:60px}
+.logo{display:flex;align-items:center;gap:12px}
+.li{width:32px;height:32px;background:linear-gradient(135deg,#2E86C1,#1A5276);
+border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff}
+main{max-width:1000px;margin:0 auto;padding:24px}
+.btn{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:10px 20px;
+font-size:14px;cursor:pointer;font-weight:600}
+.btn:hover{opacity:.9}.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+.field input{width:100%;background:var(--surface2);border:1px solid var(--border);
+border-radius:6px;padding:10px 12px;color:var(--text);font-size:14px;outline:none}
+.field input:focus{border-color:var(--blue)}
+.msg{padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px}
+.mok{background:rgba(63,185,80,.1);color:var(--green);border:1px solid rgba(63,185,80,.3)}
+.mer{background:rgba(248,81,73,.1);color:var(--red);border:1px solid rgba(248,81,73,.3)}
+.mwarn{background:rgba(210,153,34,.1);color:var(--amber);border:1px solid rgba(210,153,34,.3)}
+/* unlock overlay */
+.gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;
+justify-content:center;z-index:500;padding:20px}
+.gate-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;
+padding:32px;max-width:440px;width:100%}
+.gate h1{font-size:20px;margin-bottom:6px}
+.gate .sub{font-size:13px;color:var(--muted);margin-bottom:24px}
+.reckey{background:var(--surface2);border:1px dashed var(--amber);border-radius:8px;
+padding:16px;font-family:monospace;font-size:15px;color:var(--amber);text-align:center;
+letter-spacing:1px;margin:16px 0;word-break:break-all;line-height:1.8}
+.warn-box{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.3);
+border-radius:8px;padding:14px;font-size:12px;color:var(--text);margin:16px 0;line-height:1.6}
+.warn-box b{color:var(--amber)}
+.link{color:var(--bl);cursor:pointer;font-size:12px;text-decoration:underline;background:none;border:none}
+.hidden{display:none!important}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:24px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px}
+.sl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.sv{font-size:22px;font-weight:700;color:var(--bl)}
+.section{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:20px;overflow:hidden}
+.sh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.drop{border:2px dashed var(--border);border-radius:10px;padding:36px;text-align:center;margin:16px;cursor:pointer}
+.drop.hover{border-color:var(--blue)}.drop input{display:none}
+table{width:100%;border-collapse:collapse}
+th{padding:10px 14px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)}
+td{padding:12px 14px;font-size:13px;border-bottom:1px solid var(--border)}
+.enc-badge{font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(63,185,80,.15);color:var(--green)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
+</style>
+</head>
+<body>
+
+<!-- GATE: unlock / setup / recovery -->
+<div class="gate" id="gate">
+  <div class="gate-card">
+    <div class="logo" style="margin-bottom:20px"><div class="li">HB</div>
+      <div><div style="font-weight:700;font-size:16px">HB-Files</div>
+      <div style="font-size:11px;color:var(--muted)">Cloud privato sovrano</div></div></div>
+
+    <div id="gate-msg"></div>
+
+    <!-- STEP: credenziali (apikey+signature) -->
+    <div id="step-creds">
+      <h1>Accedi</h1>
+      <p class="sub">Inserisci le tue credenziali HashBurst (le stesse del mining).</p>
+      <div class="field"><label>API Key</label><input id="in-apikey" autocomplete="off" placeholder="la tua apikey"></div>
+      <div class="field"><label>Signature</label><input id="in-sig" type="password" placeholder="la tua signature"></div>
+      <button class="btn" style="width:100%" onclick="onCreds()">Continua</button>
+    </div>
+
+    <!-- STEP: password (login se keystore esiste) -->
+    <div id="step-password" class="hidden">
+      <h1>Sblocca i tuoi file</h1>
+      <p class="sub">Inserisci la password di cifratura. Cifra e decifra i file solo sul tuo dispositivo.</p>
+      <div class="field"><label>Password di cifratura</label><input id="in-pw" type="password" placeholder="password"></div>
+      <button class="btn" style="width:100%" onclick="onLogin()">Sblocca</button>
+      <div style="text-align:center;margin-top:14px">
+        <button class="link" onclick="showRecovery()">Password dimenticata? Usa la recovery key</button>
+      </div>
+    </div>
+
+    <!-- STEP: primo setup (crea password + mostra recovery key) -->
+    <div id="step-setup" class="hidden">
+      <h1>Configura la cifratura</h1>
+      <p class="sub">È il primo accesso. Scegli una password di cifratura: proteggerà i tuoi file. Il server non la conosce mai.</p>
+      <div class="field"><label>Nuova password di cifratura</label><input id="in-newpw" type="password" placeholder="scegli una password forte"></div>
+      <div class="field"><label>Conferma password</label><input id="in-newpw2" type="password" placeholder="ripeti la password"></div>
+      <div class="warn-box"><b>Importante:</b> questa password non è recuperabile dal server. Se la dimentichi, potrai rientrare solo con la recovery key che stai per ricevere.</div>
+      <button class="btn" style="width:100%" onclick="onSetup()">Crea e genera recovery key</button>
+    </div>
+
+    <!-- STEP: mostra recovery key (una volta) -->
+    <div id="step-showkey" class="hidden">
+      <h1>La tua recovery key</h1>
+      <p class="sub">Salvala ORA in un posto sicuro. È l'unico modo per rientrare se dimentichi la password.</p>
+      <div class="reckey" id="reckey-display"></div>
+      <button class="btn btn-ghost" style="width:100%;margin-bottom:12px" onclick="copyRecKey()">Copia negli appunti</button>
+      <div class="warn-box">
+        <b>Se perdi sia la password sia questa recovery key, i tuoi file saranno persi per sempre.</b>
+        Nessuno — nemmeno gli amministratori — può recuperarli. È il prezzo della sovranità: solo tu hai le chiavi.
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:16px 0;cursor:pointer">
+        <input type="checkbox" id="chk-saved" onchange="document.getElementById('btn-proceed').disabled=!this.checked">
+        Ho salvato la recovery key in un posto sicuro
+      </label>
+      <button class="btn" id="btn-proceed" style="width:100%" disabled onclick="onProceed()">Entra</button>
+    </div>
+
+    <!-- STEP: recovery (usa recovery key + nuova password) -->
+    <div id="step-recover" class="hidden">
+      <h1>Recupero con recovery key</h1>
+      <p class="sub">Inserisci la recovery key e scegli una nuova password.</p>
+      <div class="field"><label>Recovery key</label><input id="in-reckey" placeholder="HBRK-XXXX-XXXX-..."></div>
+      <div class="field"><label>Nuova password</label><input id="in-recpw" type="password" placeholder="nuova password"></div>
+      <button class="btn" style="width:100%" onclick="onRecover()">Recupera accesso</button>
+      <div style="text-align:center;margin-top:14px">
+        <button class="link" onclick="showStep('step-password')">Torna al login</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- APP (dopo lo sblocco) -->
+<div id="app" class="hidden">
+<header>
+  <div class="logo"><div class="li">HB</div>
+    <div><div style="font-weight:700;font-size:18px">HB-Files</div>
+    <div style="font-size:11px;color:var(--muted)">Cloud privato sovrano</div></div></div>
+  <div style="display:flex;align-items:center;gap:16px">
+    <span style="font-size:11px;color:var(--muted)"><span class="dot" id="dot" style="background:var(--green)"></span><span id="status">Cifratura attiva</span></span>
+    <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="lockApp()">Blocca</button>
+  </div>
+</header>
+<main>
+  <div id="msg"></div>
+  <div class="stats">
+    <div class="stat"><div class="sl">Quota sovrana</div><div class="sv" id="squota">—</div></div>
+    <div class="stat"><div class="sl">Usato</div><div class="sv" id="sused">—</div></div>
+    <div class="stat"><div class="sl">File</div><div class="sv" id="sfiles">—</div></div>
+    <div class="stat"><div class="sl">Cifratura</div><div class="sv" style="color:var(--green);font-size:15px;padding-top:6px">AES-256-GCM</div></div>
+  </div>
+  <div class="section">
+    <div class="sh"><span style="font-weight:600">I tuoi file</span></div>
+    <div class="drop" id="drop" onclick="document.getElementById('file').click()">
+      <p style="color:var(--muted);margin-bottom:10px">Trascina un file qui o clicca per caricare</p>
+      <p style="font-size:11px;color:var(--muted)">Il file viene cifrato sul tuo dispositivo prima di partire</p>
+      <input type="file" id="file">
+    </div>
+    <div id="uprog" style="display:none;padding:0 16px 16px"><div style="font-size:12px;color:var(--muted)" id="uptxt"></div></div>
+    <table><thead><tr><th>Nome</th><th>Dimensione</th><th>Stato</th><th></th></tr></thead>
+    <tbody id="filelist"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:30px">Nessun file</td></tr></tbody></table>
+  </div>
+</main>
+</div>
+
+<script>
+/* ============================================================================
+ * HB-Files — Client-side crypto (Strato B2)
+ * ----------------------------------------------------------------------------
+ * Cifratura SOVRANA lato browser. Il server non vede mai ne' i file in chiaro
+ * ne' le chiavi: riceve solo blob cifrati e un keystore opaco.
+ *
+ * SCHEMA (envelope encryption):
+ *   - Data Key (DK): 256 bit casuali, cifra OGNI file con AES-GCM (IV per file)
+ *   - la DK e' "avvolta" (wrapped) due volte nel keystore:
+ *       - con KEK derivata dalla PASSWORD    (PBKDF2-SHA256, 600k iter, salt_pw)
+ *       - con KEK derivata dalla RECOVERY KEY (PBKDF2-SHA256, 600k iter, salt_rk)
+ *   - il keystore (blob JSON opaco) sta sul server: inutile senza pw o recovery
+ *
+ * L'utente sblocca la DK con la password (uso quotidiano) OPPURE con la
+ * recovery key (se dimentica la password). Perse entrambe = dati irrecuperabili.
+ *
+ * Nessuna dipendenza: solo Web Crypto API (crypto.subtle), presente in tutti
+ * i browser moderni e in Node >= 15.
+ * ========================================================================== */
+
+(function (global) {
+  'use strict';
+
+  const PBKDF2_ITER = 600000;          // sopra il minimo OWASP 2025 (310k)
+  const PBKDF2_HASH = 'SHA-256';
+  const SALT_LEN = 16;                  // 128 bit
+  const IV_LEN = 12;                    // 96 bit, standard per AES-GCM
+  const KEY_BITS = 256;
+  const subtle = global.crypto.subtle;
+
+  // ---- utility base64 <-> bytes ------------------------------------------
+  function b64enc(buf) {
+    const b = new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s);
+  }
+  function b64dec(str) {
+    const s = atob(str);
+    const b = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+    return b;
+  }
+  function rnd(n) { return global.crypto.getRandomValues(new Uint8Array(n)); }
+
+  // ---- derivazione KEK da una passphrase (password o recovery key) -------
+  async function deriveKEK(passphrase, salt) {
+    const material = await subtle.importKey(
+      'raw', new TextEncoder().encode(passphrase),
+      { name: 'PBKDF2' }, false, ['deriveKey']
+    );
+    return subtle.deriveKey(
+      { name: 'PBKDF2', salt: salt, iterations: PBKDF2_ITER, hash: PBKDF2_HASH },
+      material,
+      { name: 'AES-GCM', length: KEY_BITS },
+      false, ['wrapKey', 'unwrapKey']
+    );
+  }
+
+  // ---- recovery key: 256 bit casuali, formato leggibile HBRK-xxxx-... ----
+  function generateRecoveryKey() {
+    const bytes = rnd(20);  // 160 bit -> 32 char base32
+    const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let out = '';
+    for (let i = 0; i < bytes.length; i++) {
+      out += B32[bytes[i] & 31];
+      out += B32[(bytes[i] >> 3) & 31];
+    }
+    // formato a gruppi: HBRK-XXXX-XXXX-XXXX-...
+    const groups = out.match(/.{1,4}/g).slice(0, 8);
+    return 'HBRK-' + groups.join('-');
+  }
+
+  // ---- crea un nuovo keystore (primo setup dell'utente) ------------------
+  // Genera una DK casuale, la avvolge con password e recovery key.
+  // Ritorna { keystore, recoveryKey } — la recoveryKey va mostrata UNA volta.
+  async function createKeystore(password) {
+    const dk = await subtle.generateKey(
+      { name: 'AES-GCM', length: KEY_BITS }, true, ['encrypt', 'decrypt']
+    );
+    const recoveryKey = generateRecoveryKey();
+
+    const saltPw = rnd(SALT_LEN);
+    const saltRk = rnd(SALT_LEN);
+    const kekPw = await deriveKEK(password, saltPw);
+    const kekRk = await deriveKEK(recoveryKey, saltRk);
+
+    const ivPw = rnd(IV_LEN);
+    const ivRk = rnd(IV_LEN);
+    const wrapPw = await subtle.wrapKey('raw', dk, kekPw, { name: 'AES-GCM', iv: ivPw });
+    const wrapRk = await subtle.wrapKey('raw', dk, kekRk, { name: 'AES-GCM', iv: ivRk });
+
+    const keystore = {
+      v: 1,
+      iter: PBKDF2_ITER,
+      pw: { salt: b64enc(saltPw), iv: b64enc(ivPw), wrap: b64enc(wrapPw) },
+      rk: { salt: b64enc(saltRk), iv: b64enc(ivRk), wrap: b64enc(wrapRk) },
+    };
+    return { keystore, recoveryKey };
+  }
+
+  // ---- sblocca la DK dal keystore, con password O recovery key -----------
+  async function unlockDataKey(keystore, passphrase, which) {
+    // which = 'pw' oppure 'rk'
+    const part = keystore[which];
+    if (!part) throw new Error('keystore: sezione mancante ' + which);
+    const salt = b64dec(part.salt);
+    const iv = b64dec(part.iv);
+    const wrap = b64dec(part.wrap);
+    const kek = await deriveKEK(passphrase, salt);
+    try {
+      return await subtle.unwrapKey(
+        'raw', wrap, kek, { name: 'AES-GCM', iv: iv },
+        { name: 'AES-GCM', length: KEY_BITS }, true, ['encrypt', 'decrypt']
+      );
+    } catch (e) {
+      throw new Error('Sblocco fallito: passphrase errata o keystore corrotto');
+    }
+  }
+
+  // ---- cambio password: ri-avvolge la DK esistente con nuova password ----
+  // Richiede di aver gia' sbloccato la DK (con vecchia pw o recovery).
+  async function rewrapPassword(keystore, dataKey, newPassword) {
+    const saltPw = rnd(SALT_LEN);
+    const kekPw = await deriveKEK(newPassword, saltPw);
+    const ivPw = rnd(IV_LEN);
+    const wrapPw = await subtle.wrapKey('raw', dataKey, kekPw, { name: 'AES-GCM', iv: ivPw });
+    keystore.pw = { salt: b64enc(saltPw), iv: b64enc(ivPw), wrap: b64enc(wrapPw) };
+    return keystore;
+  }
+
+  // ---- cifra un file (ArrayBuffer/Uint8Array) con la DK ------------------
+  // Ritorna un Blob: [IV (12B)] || [ciphertext+tag]. Pronto per l'upload.
+  async function encryptFile(dataKey, plainBytes) {
+    const iv = rnd(IV_LEN);
+    const ct = await subtle.encrypt({ name: 'AES-GCM', iv: iv }, dataKey, plainBytes);
+    const out = new Uint8Array(IV_LEN + ct.byteLength);
+    out.set(iv, 0);
+    out.set(new Uint8Array(ct), IV_LEN);
+    return out;
+  }
+
+  // ---- decifra un file scaricato (IV prepended) --------------------------
+  async function decryptFile(dataKey, encBytes) {
+    const data = new Uint8Array(encBytes);
+    const iv = data.slice(0, IV_LEN);
+    const ct = data.slice(IV_LEN);
+    const pt = await subtle.decrypt({ name: 'AES-GCM', iv: iv }, dataKey, ct);
+    return new Uint8Array(pt);
+  }
+
+  const HBCrypto = {
+    createKeystore, unlockDataKey, rewrapPassword,
+    encryptFile, decryptFile, generateRecoveryKey,
+    _internal: { deriveKEK, b64enc, b64dec },
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = HBCrypto;
+  else global.HBCrypto = HBCrypto;
+
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+/* Logica di flusso crittografico del pannello HB-Files (Strato B2).
+ * Orchestrata sopra hb-crypto.js. Testabile in Node, usata nel browser.
+ * Gestisce: primo setup (crea keystore + recovery key), login (sblocca DK),
+ * upload (cifra), download (decifra), recupero via recovery key. */
+
+(function (global) {
+  'use strict';
+  const HB = global.HBCrypto || (typeof require !== 'undefined' && require('./hb-crypto.js'));
+
+  // stato di sessione (in memoria, mai persistito)
+  let _dataKey = null;     // CryptoKey sbloccata
+  let _apikey = null;
+  let _signature = null;
+
+  function authHeaders(extra) {
+    const h = { 'X-Api-Key': _apikey, 'X-Signature': _signature };
+    if (extra) Object.assign(h, extra);
+    return h;
+  }
+
+  // fetch del keystore dal server (via proxy). Ritorna keystore | null.
+  async function fetchKeystore(fetchImpl) {
+    const r = await fetchImpl('/proxy/api/keystore', { headers: authHeaders() });
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error('keystore fetch fallito: HTTP ' + r.status);
+    return await r.json();
+  }
+
+  async function putKeystore(fetchImpl, keystore) {
+    const r = await fetchImpl('/proxy/api/keystore', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(keystore),
+    });
+    if (!r.ok) throw new Error('keystore save fallito: HTTP ' + r.status);
+    return true;
+  }
+
+  // Imposta le credenziali di autenticazione (apikey+signature)
+  function setAuth(apikey, signature) { _apikey = apikey; _signature = signature; }
+
+  // PRIMO SETUP: nessun keystore esiste -> crea, salva, ritorna recovery key
+  // da MOSTRARE all'utente (una volta sola).
+  async function firstSetup(fetchImpl, password) {
+    const { keystore, recoveryKey } = await HB.createKeystore(password);
+    await putKeystore(fetchImpl, keystore);
+    _dataKey = await HB.unlockDataKey(keystore, password, 'pw');
+    return recoveryKey;  // il chiamante DEVE mostrarla e far confermare il salvataggio
+  }
+
+  // LOGIN: keystore esiste -> sblocca la Data Key con la password
+  async function login(fetchImpl, password) {
+    const ks = await fetchKeystore(fetchImpl);
+    if (!ks) throw new Error('NO_KEYSTORE');  // il chiamante avvia firstSetup
+    _dataKey = await HB.unlockDataKey(ks, password, 'pw');
+    return true;
+  }
+
+  // RECUPERO: sblocca con recovery key, poi imposta una nuova password
+  async function recoverWithKey(fetchImpl, recoveryKey, newPassword) {
+    const ks = await fetchKeystore(fetchImpl);
+    if (!ks) throw new Error('NO_KEYSTORE');
+    _dataKey = await HB.unlockDataKey(ks, recoveryKey, 'rk');
+    // reimposta la password mantenendo la stessa Data Key
+    await HB.rewrapPassword(ks, _dataKey, newPassword);
+    await putKeystore(fetchImpl, ks);
+    return true;
+  }
+
+  function isUnlocked() { return _dataKey !== null; }
+  function lock() { _dataKey = null; }
+
+  // UPLOAD: cifra i byte del file, ritorna il blob cifrato (Uint8Array)
+  async function encryptForUpload(plainBytes) {
+    if (!_dataKey) throw new Error('LOCKED');
+    return await HB.encryptFile(_dataKey, plainBytes);
+  }
+
+  // DOWNLOAD: decifra i byte scaricati
+  async function decryptFromDownload(encBytes) {
+    if (!_dataKey) throw new Error('LOCKED');
+    return await HB.decryptFile(_dataKey, encBytes);
+  }
+
+  const PanelFlow = {
+    setAuth, firstSetup, login, recoverWithKey,
+    isUnlocked, lock, encryptForUpload, decryptFromDownload,
+    _fetchKeystore: fetchKeystore,
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = PanelFlow;
+  else global.PanelFlow = PanelFlow;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+
+// wrapper fetch che ritorna un oggetto compatibile con panel-flow
+async function pfetch(path, opts){ return await fetch(path, opts); }
+
+let CURRENT_APIKEY='', CURRENT_SIG='';
+
+function showStep(id){
+  ['step-creds','step-password','step-setup','step-showkey','step-recover'].forEach(s=>{
+    document.getElementById(s).classList.toggle('hidden', s!==id);
+  });
+}
+function gmsg(text,type){
+  document.getElementById('gate-msg').innerHTML = text?`<div class="msg ${type||'mer'}">${text}</div>`:'';
+}
+function amsg(text,type){
+  document.getElementById('msg').innerHTML = text?`<div class="msg ${type||'mok'}">${text}</div>`:'';
+  if(text) setTimeout(()=>document.getElementById('msg').innerHTML='',4000);
+}
+
+// STEP 1: credenziali -> verifica se esiste un keystore
+async function onCreds(){
+  const ak=document.getElementById('in-apikey').value.trim();
+  const sg=document.getElementById('in-sig').value.trim();
+  if(!ak||!sg){gmsg('Inserisci apikey e signature');return;}
+  CURRENT_APIKEY=ak; CURRENT_SIG=sg;
+  PanelFlow.setAuth(ak,sg);
+  gmsg('');
+  try{
+    const ks=await PanelFlow._fetchKeystore(pfetch);
+    if(ks===null){ showStep('step-setup'); }   // primo accesso
+    else { showStep('step-password'); }         // keystore esiste -> login
+  }catch(e){ gmsg('Credenziali non valide o server irraggiungibile'); }
+}
+
+// STEP login
+async function onLogin(){
+  const pw=document.getElementById('in-pw').value;
+  if(!pw){gmsg('Inserisci la password');return;}
+  try{ await PanelFlow.login(pfetch,pw); enterApp(); }
+  catch(e){ gmsg(e.message==='NO_KEYSTORE'?'Nessun keystore, configura la cifratura':'Password errata'); }
+}
+
+// STEP setup
+let PENDING_RECKEY='';
+async function onSetup(){
+  const p1=document.getElementById('in-newpw').value, p2=document.getElementById('in-newpw2').value;
+  if(p1.length<8){gmsg('La password deve avere almeno 8 caratteri');return;}
+  if(p1!==p2){gmsg('Le password non coincidono');return;}
+  try{
+    PENDING_RECKEY = await PanelFlow.firstSetup(pfetch,p1);
+    document.getElementById('reckey-display').textContent=PENDING_RECKEY;
+    showStep('step-showkey');
+    gmsg('');
+  }catch(e){ gmsg('Errore nella creazione: '+e.message); }
+}
+function copyRecKey(){ navigator.clipboard.writeText(PENDING_RECKEY); }
+function onProceed(){ PENDING_RECKEY=''; enterApp(); }
+
+// STEP recovery
+function showRecovery(){ showStep('step-recover'); }
+async function onRecover(){
+  const rk=document.getElementById('in-reckey').value.trim();
+  const np=document.getElementById('in-recpw').value;
+  if(!rk||np.length<8){gmsg('Recovery key e nuova password (min 8) richieste');return;}
+  try{ await PanelFlow.recoverWithKey(pfetch,rk,np); enterApp(); }
+  catch(e){ gmsg('Recovery key errata'); }
+}
+
+// entra nell'app
+function enterApp(){
+  document.getElementById('gate').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  loadFiles(); loadStats();
+}
+function lockApp(){
+  PanelFlow.lock();
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('gate').classList.remove('hidden');
+  showStep('step-password');
+  document.getElementById('in-pw').value='';
+}
+
+async function loadStats(){
+  try{
+    const r=await fetch('/proxy/health'); const h=await r.json();
+    // quota e used verranno dal backend /api/files (somma) - semplificato qui
+  }catch(e){}
+}
+
+async function loadFiles(){
+  const tbody=document.getElementById('filelist');
+  try{
+    const r=await fetch('/proxy/api/files',{headers:{'X-Api-Key':CURRENT_APIKEY,'X-Signature':CURRENT_SIG}});
+    tbody.replaceChildren();
+    if(!r.ok){
+      const tr=document.createElement('tr'), td=document.createElement('td');
+      td.colSpan=4; td.style.textAlign='center'; td.style.color='var(--muted)'; td.style.padding='30px';
+      td.textContent='Errore nel caricamento'; tr.appendChild(td); tbody.appendChild(tr); return;
+    }
+    const files=await r.json();
+    document.getElementById('sfiles').textContent=files.length;
+    if(!files.length){
+      const tr=document.createElement('tr'), td=document.createElement('td');
+      td.colSpan=4; td.style.textAlign='center'; td.style.color='var(--muted)'; td.style.padding='30px';
+      td.textContent='Nessun file. Carica il primo.'; tr.appendChild(td); tbody.appendChild(tr); return;
+    }
+    for(const f of files){
+      const tr=document.createElement('tr');
+      const name=document.createElement('td'); name.textContent=String(f.filename||''); tr.appendChild(name);
+      const size=document.createElement('td'); size.textContent=fmtSize(Number(f.size_bytes||0)); tr.appendChild(size);
+      const enc=document.createElement('td');
+      const badge=document.createElement('span'); badge.textContent=f.encrypted?'cifrato':'non cifrato';
+      if(f.encrypted) badge.className='enc-badge'; else badge.style.color='var(--muted)';
+      enc.appendChild(badge); tr.appendChild(enc);
+      const actions=document.createElement('td');
+      const btn=document.createElement('button'); btn.className='btn btn-ghost'; btn.style.padding='5px 12px'; btn.style.fontSize='12px';
+      btn.textContent='Scarica';
+      btn.addEventListener('click',()=>downloadFile(String(f.id||''),String(f.filename||''),String(f.cid||''),Boolean(f.encrypted)));
+      actions.appendChild(btn); tr.appendChild(actions); tbody.appendChild(tr);
+    }
+  }catch(e){
+    tbody.replaceChildren();
+    const tr=document.createElement('tr'), td=document.createElement('td'); td.colSpan=4; td.textContent='Errore nel caricamento'; tr.appendChild(td); tbody.appendChild(tr);
+  }
+}
+
+// UPLOAD: cifra poi invia
+document.getElementById('file').addEventListener('change', async (e)=>{
+  const file=e.target.files[0]; if(!file)return;
+  const prog=document.getElementById('uprog'), txt=document.getElementById('uptxt');
+  prog.style.display='block'; txt.textContent='Cifratura in corso...';
+  try{
+    const buf=new Uint8Array(await file.arrayBuffer());
+    const enc=await PanelFlow.encryptForUpload(buf);   // <-- cifratura client
+    txt.textContent='Caricamento su IPFS...';
+    const fd=new FormData();
+    fd.append('file', new Blob([enc],{type:'application/octet-stream'}), file.name);
+    const r=await fetch('/proxy/api/upload',{method:'POST',
+      headers:{'X-Api-Key':CURRENT_APIKEY,'X-Signature':CURRENT_SIG,'X-HB-Encrypted':'true'},body:fd});
+    if(r.ok){ amsg('File cifrato e caricato','mok'); loadFiles(); }
+    else { amsg('Errore upload: HTTP '+r.status,'mer'); }
+  }catch(err){ amsg('Errore: '+err.message,'mer'); }
+  finally{ prog.style.display='none'; e.target.value=''; }
+});
+
+// DOWNLOAD: scarica poi decifra
+async function downloadFile(id,filename,cid,encrypted){
+  try{
+    // creo uno share al volo per ottenere il blob (o uso un endpoint diretto)
+    const sr=await fetch('/proxy/api/share/'+id,{method:'POST',
+      headers:{'X-Api-Key':CURRENT_APIKEY,'X-Signature':CURRENT_SIG,'Content-Type':'application/json'},body:'{}'});
+    const share=await sr.json();
+    const dr=await fetch('/proxy/files/'+share.token);
+    const encBuf=new Uint8Array(await dr.arrayBuffer());
+    let outBuf=encBuf;
+    if(encrypted){ outBuf=await PanelFlow.decryptFromDownload(encBuf); }  // <-- decifra client
+    const blob=new Blob([outBuf]);
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+    amsg('File scaricato e decifrato','mok');
+  }catch(e){ amsg('Errore download: '+e.message,'mer'); }
+}
+
+function esc(s){return String(s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));}
+function fmtSize(b){if(b<1024)return b+' B';if(b<1048576)return (b/1024).toFixed(1)+' KB';if(b<1073741824)return (b/1048576).toFixed(1)+' MB';return (b/1073741824).toFixed(2)+' GB';}
+showStep('step-creds');
+</script>
+</body></html>

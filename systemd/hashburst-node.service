@@ -1,0 +1,27 @@
+[Unit]
+Description=HashBurst Blockchain Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hashburst-node
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/etc/hashburst/env
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/hashburst /var/log/hashburst
+StandardOutput=append:/var/log/hashburst/node.log
+StandardError=append:/var/log/hashburst/node.log
+
+[Install]
+WantedBy=multi-user.target

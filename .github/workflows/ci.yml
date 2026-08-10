@@ -1,0 +1,30 @@
+name: HashBurst Node Installer CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Python syntax
+        run: |
+          python -m py_compile aggregator/hb_aggregator.py aggregator/hb_aggregator_server.py integrations/explorer/patch_hashburst_explorer.py
+      - name: Shell syntax
+        run: |
+          bash -n install.sh
+          bash -n ipfs-scripts/01-install-ipfs-dual-ZFS.sh
+          bash -n ipfs-scripts/01-install-ipfs-dual-noZFS.sh
+          bash -n ipfs-scripts/02-verify.sh
+      - name: Release tests
+        run: python tests/test_release.py
+      - name: Multipart regression
+        run: python tests/test_multipart_bytes.py

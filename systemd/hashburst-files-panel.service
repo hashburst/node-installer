@@ -1,0 +1,26 @@
+[Unit]
+Description=HashBurst Files Local Panel
+After=network-online.target hashburst-files.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/hashburst-files
+ExecStart=/usr/bin/python3 /opt/hashburst-files/hb_files_panel.py
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/etc/hashburst/env
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/var/log/hashburst
+
+[Install]
+WantedBy=multi-user.target

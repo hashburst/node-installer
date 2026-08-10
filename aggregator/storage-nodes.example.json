@@ -1,0 +1,23 @@
+{
+  "nodes": [
+    {
+      "name": "primary-storage",
+      "url": "http://85.233.199.35:8091",
+      "capacity_class": "committable",
+      "role": "primary"
+    },
+    {
+      "name": "secondary-storage",
+      "url": "http://77.90.188.155:8091",
+      "capacity_class": "committable",
+      "role": "secondary"
+    },
+    {
+      "name": "edge-example",
+      "url": "http://127.0.0.1:18091",
+      "capacity_class": "best-effort",
+      "enabled": false,
+      "role": "edge"
+    }
+  ]
+}
