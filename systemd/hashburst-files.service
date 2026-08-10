@@ -1,0 +1,29 @@
+[Unit]
+Description=HashBurst Files - Sovereign Storage API
+After=network-online.target ipfs-private.service
+Wants=network-online.target
+Requires=ipfs-private.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/hashburst-files
+ExecStart=/usr/bin/python3 /opt/hashburst-files/hb_files.py --port 8091
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/etc/hashburst/env
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/hashburst /var/log/hashburst -/datapool/hashburst
+StandardOutput=append:/var/log/hashburst/hb-files.log
+StandardError=append:/var/log/hashburst/hb-files.log
+
+[Install]
+WantedBy=multi-user.target

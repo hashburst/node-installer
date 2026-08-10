@@ -1,0 +1,14 @@
+{
+  "as_of": "2026-08-10",
+  "public_domain": "blockchainapi.one",
+  "nodes": [
+    {"ip":"85.233.199.35","purpose":"primary-storage","storage_role":"primary","capacity_gb":5120,"notes":"Current summary reports source=zfs; host diagnostic reported no zfs command, so reinstall must use an explicit backend choice."},
+    {"ip":"77.90.188.155","purpose":"secondary-storage","storage_role":"secondary","capacity_gb":400},
+    {"ip":"77.90.188.157","purpose":"blockchain","storage_role":"none","public_ipfs":"pre-existing; use --public-ipfs-mode reuse if storage is later enabled"},
+    {"ip":"64.31.4.9","purpose":"public-api-aggregator-mining","storage_role":"none","ports":[8009,8093,8094]}
+  ],
+  "public_routes": [
+    "/api/hashburst/", "/ipfs/", "/api/tep/", "/api/hashburst/mining/summary",
+    "/api/hashburst/wallets/me", "/api/hashburst/workers/search", "/api/network/storage"
+  ]
+}
