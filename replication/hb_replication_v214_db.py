@@ -7,7 +7,6 @@ just-in-time authorization before an agent may unpin local Kubo content.
 """
 from __future__ import annotations
 
-import json
 import time
 import uuid
 
@@ -61,7 +60,7 @@ class ReplicationDBV214(ReplicationDB):
         super().upsert_node(node)
         with self._lock:
             self._conn.execute(
-                """UPDATE nodes SET failure_domain=?,provider=?,region=?,rack=? WHERE node_id=?""",
+                "UPDATE nodes SET failure_domain=?,provider=?,region=?,rack=? WHERE node_id=?",
                 (
                     str(node.get("failure_domain") or "").strip(),
                     str(node.get("provider") or "").strip(),
@@ -73,36 +72,48 @@ class ReplicationDBV214(ReplicationDB):
 
     def register_object(self, cid: str, size_bytes: int, n: int, m: int,
                         source_node: str | None = None, reference_id: str | None = None):
-        # Never resurrect an object while a destructive operation has already
-        # crossed the authorization boundary. The caller may retry afterwards.
+        old_policy = None
         with self._lock:
             obj = self._conn.execute(
-                "SELECT generation,refcount FROM objects WHERE cid=?", (cid,)
+                "SELECT generation,refcount,replication_n,committable_m FROM objects WHERE cid=?", (cid,)
             ).fetchone()
-            if obj and int(obj[1] or 0) == 0:
-                pending = self._conn.execute(
-                    """SELECT 1 FROM jobs WHERE cid=? AND operation='UNPIN'
-                       AND state='authorized' LIMIT 1""", (cid,)
+            if obj:
+                old_policy = (int(obj[2]), int(obj[3]))
+                authorized = self._conn.execute(
+                    "SELECT reason FROM jobs WHERE cid=? AND operation='UNPIN' AND state='authorized' LIMIT 1",
+                    (cid,),
                 ).fetchone()
-                if pending:
-                    raise LifecycleConflict("CID has an authorized UNPIN in progress")
+                if authorized:
+                    if int(obj[1] or 0) == 0:
+                        raise LifecycleConflict("CID has an authorized UNPIN in progress")
+                    if int(n) > old_policy[0] or int(m) > old_policy[1]:
+                        raise LifecycleConflict("replication policy cannot change during an authorized trim")
+
         out = super().register_object(cid, size_bytes, n, m, source_node, reference_id)
         with self.tx() as c:
             row = c.execute(
-                "SELECT refcount,released_at FROM objects WHERE cid=?", (cid,)
+                "SELECT refcount,released_at,replication_n,committable_m FROM objects WHERE cid=?", (cid,)
             ).fetchone()
-            if row and int(row[0]) > 0 and int(row[1] or 0):
+            resurrected = bool(row and int(row[0]) > 0 and int(row[1] or 0))
+            policy_changed = bool(old_policy and (int(row[2]), int(row[3])) != old_policy)
+            if resurrected or policy_changed:
                 c.execute(
-                    "UPDATE objects SET generation=generation+1,released_at=0,state='pending',reason='' WHERE cid=?",
+                    """UPDATE objects SET generation=generation+1,released_at=0,
+                       state='pending',reason='' WHERE cid=?""",
                     (cid,),
                 )
                 gen = int(c.execute("SELECT generation FROM objects WHERE cid=?", (cid,)).fetchone()[0])
+                if resurrected:
+                    c.execute(
+                        "UPDATE replicas SET desired=1,generation=? WHERE cid=? AND state<>'unpinned'",
+                        (gen, cid),
+                    )
+                else:
+                    c.execute("UPDATE replicas SET generation=? WHERE cid=?", (gen, cid))
                 c.execute(
-                    "UPDATE replicas SET desired=1,generation=? WHERE cid=? AND state<>'unpinned'",
-                    (gen, cid),
-                )
-                c.execute(
-                    "UPDATE jobs SET state='stale',updated_at=? WHERE cid=? AND operation='UNPIN' AND state IN ('pending','retry')",
+                    """UPDATE jobs SET state='stale',updated_at=? WHERE cid=?
+                       AND operation IN ('PIN','VERIFY','UNPIN','UNPIN_VERIFY')
+                       AND state IN ('pending','retry')""",
                     (int(time.time()), cid),
                 )
         return out
@@ -141,6 +152,12 @@ class ReplicationDBV214(ReplicationDB):
             new_ref = max(0, old_ref - 1)
             final = new_ref == 0
             if final:
+                authorized = c.execute(
+                    "SELECT 1 FROM jobs WHERE cid=? AND operation='UNPIN' AND state='authorized' LIMIT 1",
+                    (cid,),
+                ).fetchone()
+                if authorized:
+                    raise LifecycleConflict("CID has an authorized trim in progress")
                 c.execute(
                     """UPDATE objects SET refcount=0,released_at=?,state='release_pending',
                        reason='logical references released',generation=generation+1 WHERE cid=?""",
@@ -149,13 +166,11 @@ class ReplicationDBV214(ReplicationDB):
                 generation = int(c.execute(
                     "SELECT generation FROM objects WHERE cid=?", (cid,)
                 ).fetchone()[0])
-                c.execute(
-                    "UPDATE replicas SET desired=0,generation=? WHERE cid=?",
-                    (generation, cid),
-                )
+                c.execute("UPDATE replicas SET desired=0,generation=? WHERE cid=?", (generation, cid))
                 c.execute(
                     """UPDATE jobs SET state='stale',updated_at=? WHERE cid=?
-                       AND operation IN ('PIN','VERIFY') AND state IN ('pending','retry')""",
+                       AND operation IN ('PIN','VERIFY','UNPIN','UNPIN_VERIFY')
+                       AND state IN ('pending','retry')""",
                     (now, cid),
                 )
             else:
@@ -170,13 +185,70 @@ class ReplicationDBV214(ReplicationDB):
                 "request_id": request_id, "refcount": new_ref, "released": True,
                 "final_release": final, "generation": generation}
 
+    @staticmethod
+    def _is_trim_reason(reason: str) -> bool:
+        return reason == "trim-extra-replica"
+
+    def _trim_capacity_locked(self, c, cid: str, node_id: str, generation: int,
+                              include_authorized: bool = True) -> bool:
+        obj = c.execute(
+            "SELECT refcount,generation,replication_n,committable_m FROM objects WHERE cid=?", (cid,)
+        ).fetchone()
+        if not obj or int(obj[0]) <= 0 or int(obj[1]) != int(generation):
+            return False
+        target = c.execute(
+            """SELECT class_at_assignment,desired,state FROM replicas
+               WHERE cid=? AND node_id=?""", (cid, node_id)
+        ).fetchone()
+        if not target or not int(target[1]) or target[2] != "pinned":
+            return False
+        counts = c.execute(
+            """SELECT COUNT(*) total,
+               SUM(CASE WHEN class_at_assignment='committable' THEN 1 ELSE 0 END) comm
+               FROM replicas WHERE cid=? AND desired=1 AND state='pinned'""",
+            (cid,),
+        ).fetchone()
+        total = int(counts[0] or 0)
+        comm = int(counts[1] or 0)
+        if include_authorized:
+            auth = c.execute(
+                """SELECT r.class_at_assignment FROM jobs j
+                   JOIN replicas r ON r.cid=j.cid AND r.node_id=j.node_id
+                   WHERE j.cid=? AND j.operation='UNPIN' AND j.reason='trim-extra-replica'
+                     AND j.state='authorized' AND j.node_id<>?""",
+                (cid, node_id),
+            ).fetchall()
+            total -= len(auth)
+            comm -= sum(1 for r in auth if r[0] == "committable")
+        total_after = total - 1
+        comm_after = comm - (1 if target[0] == "committable" else 0)
+        return total_after >= int(obj[2]) and comm_after >= int(obj[3])
+
     def create_unpin_job(self, cid: str, node_id: str, generation: int,
                          reason: str, not_before: int = 0) -> str | None:
         now = int(time.time())
+        reason = str(reason or "")[:200]
         with self.tx() as c:
             obj = c.execute("SELECT refcount,generation FROM objects WHERE cid=?", (cid,)).fetchone()
-            if not obj or int(obj[0]) != 0 or int(obj[1]) != int(generation):
+            if not obj or int(obj[1]) != int(generation):
                 return None
+            if self._is_trim_reason(reason):
+                active_trim = c.execute(
+                    """SELECT COUNT(*) FROM jobs WHERE cid=? AND operation='UNPIN'
+                       AND reason='trim-extra-replica' AND state IN ('pending','retry','authorized')""",
+                    (cid,),
+                ).fetchone()[0]
+                counts = c.execute(
+                    "SELECT COUNT(*) FROM replicas WHERE cid=? AND desired=1 AND state='pinned'", (cid,)
+                ).fetchone()[0]
+                target_n = c.execute("SELECT replication_n FROM objects WHERE cid=?", (cid,)).fetchone()[0]
+                if int(counts) - int(active_trim) <= int(target_n):
+                    return None
+                if not self._trim_capacity_locked(c, cid, node_id, generation, include_authorized=False):
+                    return None
+            elif int(obj[0]) != 0:
+                return None
+
             active = c.execute(
                 """SELECT job_id FROM jobs WHERE cid=? AND node_id=? AND operation='UNPIN'
                    AND generation=? AND state IN ('pending','retry','authorized') LIMIT 1""",
@@ -188,10 +260,11 @@ class ReplicationDBV214(ReplicationDB):
             c.execute(
                 """INSERT INTO jobs(job_id,cid,node_id,operation,generation,state,next_attempt_at,
                    created_at,updated_at,reason) VALUES(?,?,?,?,?,'pending',?,?,?,?)""",
-                (job_id, cid, node_id, "UNPIN", int(generation), max(now, int(not_before)), now, now, reason[:200]),
+                (job_id, cid, node_id, "UNPIN", int(generation),
+                 max(now, int(not_before)), now, now, reason),
             )
         self.audit("UNPIN_PLANNED", cid=cid, node_id=node_id, job_id=job_id,
-                   generation=int(generation), reason=reason[:200])
+                   generation=int(generation), reason=reason)
         return job_id
 
     def authorize_unpin(self, node_id: str, job_id: str, lease_until: int) -> dict:
@@ -203,40 +276,26 @@ class ReplicationDBV214(ReplicationDB):
             ).fetchone()
             if not job:
                 return {"authorized": False, "reason": "unknown-job"}
-            obj = c.execute("SELECT refcount,generation FROM objects WHERE cid=?", (job["cid"],)).fetchone()
-            valid = (
-                obj and int(obj[0]) == 0 and int(obj[1]) == int(job["generation"])
-                and int(job["lease_until"] or 0) == int(lease_until)
-                and job["state"] in {"pending", "retry"}
-            )
-            if not valid:
+            obj = c.execute(
+                "SELECT refcount,generation FROM objects WHERE cid=?", (job["cid"],)
+            ).fetchone()
+            lease_ok = int(job["lease_until"] or 0) == int(lease_until)
+            state_ok = job["state"] in {"pending", "retry"}
+            generation_ok = bool(obj and int(obj[1]) == int(job["generation"]))
+            if self._is_trim_reason(str(job["reason"] or "")):
+                lifecycle_ok = generation_ok and self._trim_capacity_locked(
+                    c, job["cid"], node_id, int(job["generation"]), include_authorized=True
+                )
+            else:
+                lifecycle_ok = generation_ok and int(obj[0]) == 0
+            if not (lease_ok and state_ok and lifecycle_ok):
                 c.execute("UPDATE jobs SET state='stale',updated_at=? WHERE job_id=?", (now, job_id))
-                return {"authorized": False, "reason": "stale-or-referenced"}
+                return {"authorized": False, "reason": "stale-or-policy-unsafe"}
             c.execute(
                 "UPDATE jobs SET state='authorized',authorized_at=?,updated_at=? WHERE job_id=?",
                 (now, now, job_id),
             )
             return {"authorized": True, "cid": job["cid"], "generation": int(job["generation"])}
-
-    def recover_v214(self):
-        now = int(time.time())
-        with self.tx() as c:
-            # An authorized UNPIN has unknown physical outcome after restart.
-            # Convert it into VERIFY: if still pinned, reconciliation can safely
-            # schedule a fresh UNPIN; if absent, state converges to unpinned.
-            rows = c.execute(
-                "SELECT job_id,cid,node_id,generation FROM jobs WHERE operation='UNPIN' AND state='authorized'"
-            ).fetchall()
-            for row in rows:
-                c.execute("UPDATE jobs SET state='stale',updated_at=? WHERE job_id=?", (now, row[0]))
-                verify_id = uuid.uuid4().hex
-                c.execute(
-                    """INSERT INTO jobs(job_id,cid,node_id,operation,generation,state,next_attempt_at,
-                       created_at,updated_at,reason) VALUES(?,?,?,?,?,'pending',0,?,?,?)""",
-                    (verify_id, row[1], row[2], int(row[3]), now, now, "recover-authorized-unpin"),
-                )
-        if rows:
-            self.audit("RECOVERY_UNPIN_VERIFY", count=len(rows))
 
     def pending_jobs(self, node_id: str, now: int | None = None, limit: int = 32,
                      allowed_operations: set[str] | None = None):
@@ -248,7 +307,9 @@ class ReplicationDBV214(ReplicationDB):
     def apply_job_report(self, node_id: str, report: dict):
         job_id = str(report.get("job_id") or "")
         with self._lock:
-            job = self._conn.execute("SELECT * FROM jobs WHERE job_id=? AND node_id=?", (job_id, node_id)).fetchone()
+            job = self._conn.execute(
+                "SELECT * FROM jobs WHERE job_id=? AND node_id=?", (job_id, node_id)
+            ).fetchone()
         if not job or job["operation"] != "UNPIN":
             return super().apply_job_report(node_id, report)
 
@@ -258,13 +319,21 @@ class ReplicationDBV214(ReplicationDB):
             job = c.execute("SELECT * FROM jobs WHERE job_id=? AND node_id=?", (job_id, node_id)).fetchone()
             obj = c.execute("SELECT refcount,generation FROM objects WHERE cid=?", (job["cid"],)).fetchone()
             lease = int(report.get("lease_until") or 0)
-            if not obj or int(obj[0]) != 0 or int(obj[1]) != int(job["generation"]):
+            generation_ok = bool(obj and int(obj[1]) == int(job["generation"]))
+            if self._is_trim_reason(str(job["reason"] or "")):
+                lifecycle_ok = generation_ok
+            else:
+                lifecycle_ok = generation_ok and int(obj[0]) == 0
+            if not lifecycle_ok:
                 c.execute("UPDATE jobs SET state='stale',updated_at=? WHERE job_id=?", (now, job_id))
                 return
             if int(job["lease_until"] or 0) != lease or job["state"] != "authorized":
                 return
             if state == "unpinned":
-                c.execute("UPDATE jobs SET state='done',lease_until=0,updated_at=?,last_error='' WHERE job_id=?", (now, job_id))
+                c.execute(
+                    "UPDATE jobs SET state='done',lease_until=0,updated_at=?,last_error='' WHERE job_id=?",
+                    (now, job_id),
+                )
                 c.execute(
                     "UPDATE replicas SET state='unpinned',desired=0,last_error='' WHERE cid=? AND node_id=?",
                     (job["cid"], node_id),
