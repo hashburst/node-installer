@@ -12,6 +12,22 @@ except ImportError:
 
 
 class ReplicationDBV214Recovery(ReplicationDBV214):
+    def active_unpin_nodes(self, cid: str, reason: str = "") -> set[str]:
+        with self._lock:
+            if reason:
+                rows = self._conn.execute(
+                    """SELECT node_id FROM jobs WHERE cid=? AND operation='UNPIN' AND reason=?
+                       AND state IN ('pending','retry','authorized')""",
+                    (cid, reason),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    """SELECT node_id FROM jobs WHERE cid=? AND operation='UNPIN'
+                       AND state IN ('pending','retry','authorized')""",
+                    (cid,),
+                ).fetchall()
+        return {str(r[0]) for r in rows}
+
     def recover_v214(self):
         now = int(time.time())
         with self.tx() as c:
@@ -64,9 +80,6 @@ class ReplicationDBV214Recovery(ReplicationDBV214):
                     (job["cid"], node_id),
                 )
             elif state == "verified":
-                # Content is still pinned. Verification itself succeeded; mark
-                # this recovery check done and let reconciliation schedule a new,
-                # freshly fenced UNPIN only if destructive mode remains enabled.
                 c.execute("UPDATE jobs SET state='done',lease_until=0,updated_at=?,last_error='' WHERE job_id=?", (now, job_id))
                 c.execute(
                     "UPDATE replicas SET state='pinned',desired=0,last_verified_at=?,last_error='' WHERE cid=? AND node_id=?",
