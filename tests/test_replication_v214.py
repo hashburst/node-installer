@@ -1,4 +1,3 @@
-import json
 import sys
 import tempfile
 import unittest
@@ -8,7 +7,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "hbfiles"))
 
-from replication.hb_replication_v214_db import LifecycleConflict, ReplicationDBV214
+from replication.hb_replication_v214_db import LifecycleConflict
+from replication.hb_replication_v214_recovery import ReplicationDBV214Recovery
 import replication.hb_replica_agent_v214 as agentmod
 
 GiB = 1024 ** 3
@@ -30,7 +30,7 @@ class LifecycleDBTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.db = ReplicationDBV214(str(Path(self.tmp.name) / "controller.sqlite3"))
+        self.db = ReplicationDBV214Recovery(str(Path(self.tmp.name) / "controller.sqlite3"))
         self.addCleanup(self.db._conn.close)
         self.db.upsert_node(node())
 
@@ -61,30 +61,45 @@ class LifecycleDBTests(unittest.TestCase):
         self.assertFalse(replay["released"])
         self.assertEqual(0, replay["refcount"])
 
-    def test_unpin_authorization_requires_zero_refcount_generation_and_lease(self):
-        self.db.register_object("bafy-a", GiB, 3, 2, source_node="p1", reference_id="file-1")
-        out = self.db.release_object("bafy-a", "file-1")
-        jid = self.db.create_unpin_job("bafy-a", "p1", out["generation"], "final-release")
-        leased = self.db.pending_jobs("p1", now=2_000_000_000, allowed_operations={"UNPIN"})
-        self.assertEqual([jid], [j["job_id"] for j in leased])
-        denied = self.db.authorize_unpin("p1", jid, leased[0]["lease_until"] + 1)
-        self.assertFalse(denied["authorized"])
-
-    def test_authorized_unpin_blocks_reregister_until_outcome_known(self):
+    def _authorized_unpin(self):
         self.db.register_object("bafy-a", GiB, 3, 2, source_node="p1", reference_id="file-1")
         out = self.db.release_object("bafy-a", "file-1")
         jid = self.db.create_unpin_job("bafy-a", "p1", out["generation"], "final-release")
         leased = self.db.pending_jobs("p1", now=2_000_000_000, allowed_operations={"UNPIN"})[0]
         auth = self.db.authorize_unpin("p1", jid, leased["lease_until"])
         self.assertTrue(auth["authorized"])
+        return jid, out
+
+    def test_unpin_authorization_requires_exact_lease(self):
+        self.db.register_object("bafy-a", GiB, 3, 2, source_node="p1", reference_id="file-1")
+        out = self.db.release_object("bafy-a", "file-1")
+        jid = self.db.create_unpin_job("bafy-a", "p1", out["generation"], "final-release")
+        leased = self.db.pending_jobs("p1", now=2_000_000_000, allowed_operations={"UNPIN"})
+        denied = self.db.authorize_unpin("p1", jid, leased[0]["lease_until"] + 1)
+        self.assertFalse(denied["authorized"])
+
+    def test_authorized_unpin_blocks_reregister_until_outcome_known(self):
+        self._authorized_unpin()
         with self.assertRaises(LifecycleConflict):
             self.db.register_object("bafy-a", GiB, 3, 2, source_node="p1", reference_id="file-2")
 
+    def test_recovery_replaces_authorized_unpin_with_non_destructive_verify(self):
+        jid, out = self._authorized_unpin()
+        self.db.recover_v214()
+        old = self.db._conn.execute("SELECT state FROM jobs WHERE job_id=?", (jid,)).fetchone()
+        self.assertEqual("stale", old[0])
+        recovery = self.db._conn.execute(
+            "SELECT operation,state,generation FROM jobs WHERE cid='bafy-a' AND operation='UNPIN_VERIFY'"
+        ).fetchone()
+        self.assertIsNotNone(recovery)
+        self.assertEqual("pending", recovery[1])
+        self.assertEqual(out["generation"], recovery[2])
+
 
 class FakeIPFS:
-    def __init__(self):
+    def __init__(self, pinned=True):
         self.unpin_calls = []
-        self.pinned = True
+        self.pinned = pinned
     def unpin(self, cid):
         self.unpin_calls.append(cid)
         self.pinned = False
@@ -124,6 +139,20 @@ class AgentUnpinTests(unittest.TestCase):
             report = agent.execute_job({"job_id": "j1", "cid": "bafy", "operation": "UNPIN", "lease_until": 10})
         self.assertEqual("unpinned", report["state"])
         self.assertEqual(["bafy"], fake.unpin_calls)
+
+    def test_unpin_verify_reports_absent_without_destructive_call(self):
+        fake = FakeIPFS(pinned=False)
+        agent = self.make_agent(fake)
+        report = agent.execute_job({"job_id": "j2", "cid": "bafy", "operation": "UNPIN_VERIFY", "lease_until": 11})
+        self.assertEqual("unpinned", report["state"])
+        self.assertEqual([], fake.unpin_calls)
+
+    def test_unpin_verify_reports_still_pinned_without_destructive_call(self):
+        fake = FakeIPFS(pinned=True)
+        agent = self.make_agent(fake)
+        report = agent.execute_job({"job_id": "j3", "cid": "bafy", "operation": "UNPIN_VERIFY", "lease_until": 12})
+        self.assertEqual("verified", report["state"])
+        self.assertEqual([], fake.unpin_calls)
 
 
 if __name__ == "__main__":
