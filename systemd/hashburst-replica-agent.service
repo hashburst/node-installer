@@ -1,0 +1,19 @@
+[Unit]
+Description=HashBurst Replica Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/hashburst/replica-agent.env
+Environment=PYTHONPATH=/opt/hashburst/hbfiles
+ExecStart=/usr/bin/python3 /opt/hashburst/replication/hb_replica_agent.py
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

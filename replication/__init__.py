@@ -1,0 +1,1 @@
+"""HashBurst replication controller package."""

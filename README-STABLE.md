@@ -1,10 +1,14 @@
-# HashBurst Node Installer v2.1.2
+# HashBurst Node Installer v2.1.3
 
 Run tests first:
 
 ```bash
 python3 tests/test_release.py
 python3 tests/test_multipart_bytes.py
+python3 -W error::ResourceWarning -m unittest -v \
+  tests.test_replication_policy tests.test_replication_repair \
+  tests.test_replica_agent tests.test_replication_hook
+python3 tests/v2.1.3_release_regression.py
 ```
 
 ## Deployment profiles for the current network
@@ -67,3 +71,8 @@ A future TEP-aware aggregator/discovery path can remove the need for inbound HTT
 - Offline entries without a valid configured class or role are reported as `unknown`, never implicitly `committable`.
 
 For an existing public explorer, see `integrations/explorer/` for the CSP-safe schema patcher.
+## Replication controller rollout
+
+v2.1.3 ships the replication controller and replica agent but does not enable either service automatically. The initial safety mode is `observe`; the HB-Files registration hook and automatic UNPIN are disabled by default.
+
+Default policy is N=3 total confirmed copies with M=2 confirmed copies on committable nodes. Edge replicas are best-effort only. See `docs/REPLICATION_CONTROLLER.md` and `docs/RELEASE_NOTES_v2.1.3.md`.

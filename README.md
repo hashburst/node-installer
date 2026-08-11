@@ -18,11 +18,12 @@ hashburst-node/
   install.sh                     guided installer (auto-detects ZFS)
   bin/hashburst-node             blockchain node binary
   hbfiles/                       complete HB-Files code (all layers applied)
+  replication/                   replication controller, policy, DB and agent
   ipfs-scripts/
     01-install-ipfs-dual-ZFS.sh    dual IPFS on ZFS (datapool)
     01-install-ipfs-dual-noZFS.sh  dual IPFS on a normal filesystem
     02-verify.sh                   IPFS verification
-  systemd/                       service units (node, files, panel)
+  systemd/                       service units (node, files, panel, replication)
   aggregator/                    network aggregator (for the reference node)
 ```
 
@@ -112,7 +113,17 @@ systemctl daemon-reload && systemctl enable --now hashburst-aggregator
 
 The storage aggregator listens on `127.0.0.1:8094` by default. Port `8093` is reserved for the mining aggregator and must not be used by storage. The supplied systemd unit also sets `HB_AGGREGATOR_TIMEOUT=3`.
 
-For static discovery, configure both `role` and `capacity_class` explicitly. In particular, every edge should use `"role":"edge"` and `"capacity_class":"best-effort"`. If an offline node has neither a valid configured class nor role, v2.1.2 reports its class as `unknown` rather than assuming `committable`.
+For static discovery, configure both `role` and `capacity_class` explicitly. In particular, every edge should use `"role":"edge"` and `"capacity_class":"best-effort"`. If an offline node has neither a valid configured class nor role, it is reported as `unknown` rather than assuming `committable`.
+
+## Durable replication controller (v2.1.3)
+
+The package now contains an opt-in native replication controller. Its default policy targets `N=3` confirmed copies, with at least `M=2` confirmed copies on `committable` nodes. Edge replicas are best-effort and never increase the sellable committable guarantee.
+
+The controller and replica-agent services are installed but are **not enabled automatically**. The controller defaults to `HB_REPL_MODE=observe`, the HB-Files registration hook defaults to `HB_REPL_HOOK_ENABLED=0`, and automatic UNPIN defaults to disabled. This allows observation and additive pin rollout before any destructive lifecycle operation is introduced.
+
+Replica agents poll outbound and talk only to their local Kubo RPC at `127.0.0.1:5011`; the controller never opens remote Kubo access. For remote agents, publish the controller only through a protected TLS/private transport rather than exposing its plain HTTP bearer-token endpoint directly to the Internet.
+
+See `docs/REPLICATION_CONTROLLER.md` for rollout and known limits.
 
 ## Security notes
 
@@ -134,4 +145,4 @@ For static discovery, configure both `role` and `capacity_class` explicitly. In 
 
 ## GitHub publication
 
-v2.1.2 includes CI under `.github/workflows/ci.yml` and a publication checklist in `docs/GITHUB_PUBLICATION.md`. The repository owner should choose the intended software license before public release; no license is inferred by this package.
+v2.1.3 includes CI under `.github/workflows/ci.yml`, replication regression coverage, and the MIT `LICENSE`. The published v2.1.2 release remains the rollback baseline until the v2.1.3 rollout is accepted.
