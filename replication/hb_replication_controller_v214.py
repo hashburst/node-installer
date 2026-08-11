@@ -19,11 +19,13 @@ from urllib.parse import unquote, urlparse
 
 try:
     from . import hb_replication_controller as base
-    from .hb_replication_v214_db import LifecycleConflict, ReplicationDBV214
+    from .hb_replication_v214_db import LifecycleConflict
+    from .hb_replication_v214_recovery import ReplicationDBV214Recovery
     from .hb_replication_policy import BEST_EFFORT, COMMITTABLE, PlacementPolicy
 except ImportError:
     import hb_replication_controller as base
-    from hb_replication_v214_db import LifecycleConflict, ReplicationDBV214
+    from hb_replication_v214_db import LifecycleConflict
+    from hb_replication_v214_recovery import ReplicationDBV214Recovery
     from hb_replication_policy import BEST_EFFORT, COMMITTABLE, PlacementPolicy
 
 LOG = logging.getLogger("hb-replication-controller-v214")
@@ -37,8 +39,6 @@ class ControllerV214(base.Controller):
     def __init__(self, db, nodes_file, policy, mode=MODE, unpin_enabled=UNPIN_ENABLED):
         if mode not in {"observe", "pin-only", "full"}:
             raise ValueError("HB_REPL_MODE must be observe, pin-only or full")
-        # Initialize the proven controller in its active non-destructive mode,
-        # then expose the explicit v2.1.4 mode.
         super().__init__(db, nodes_file, policy, "pin-only" if mode == "full" else mode)
         self.mode = mode
         self.unpin_enabled = bool(unpin_enabled)
@@ -65,7 +65,9 @@ class ControllerV214(base.Controller):
         if self.mode == "observe":
             jobs = []
         else:
-            allowed = {"PIN", "VERIFY"}
+            # UNPIN_VERIFY is non-destructive and may be delivered in pin-only
+            # mode to resolve an uncertain crash outcome safely.
+            allowed = {"PIN", "VERIFY", "UNPIN_VERIFY"}
             if self.mode == "full" and self.unpin_enabled:
                 allowed.add("UNPIN")
             jobs = self.db.pending_jobs(node_id, allowed_operations=allowed)
@@ -113,8 +115,6 @@ class ControllerV214(base.Controller):
         if len(pinned) <= target:
             return
         comm = sum(1 for r in pinned if r.get("class_at_assignment") == COMMITTABLE)
-        # Prefer removing best-effort replicas; remove committable copies only
-        # when M remains satisfied after the trim.
         candidates = sorted(
             pinned,
             key=lambda r: (0 if r.get("class_at_assignment") == BEST_EFFORT else 1,
@@ -154,6 +154,9 @@ class ControllerV214(base.Controller):
                 LOG.exception("reconcile failed cid=%s", obj.get("cid"))
 
     def loop(self):
+        # Fast repair remains every REPAIR_INTERVAL. The same pass is safe and
+        # idempotent; RECONCILE_INTERVAL is retained as an operator-visible
+        # configuration contract for future expensive full scans.
         while not self._stop.wait(base.REPAIR_INTERVAL):
             self.reconcile_all()
 
@@ -230,7 +233,7 @@ def main():
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     if not base.ADMIN_TOKEN:
         raise SystemExit("HB_REPL_ADMIN_TOKEN must be set (fail-closed)")
-    db = ReplicationDBV214(args.db)
+    db = ReplicationDBV214Recovery(args.db)
     db.recover_v214()
     policy = PlacementPolicy(base.DEFAULT_N, base.DEFAULT_M)
     policy.validate()
