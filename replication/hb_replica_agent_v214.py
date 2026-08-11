@@ -50,6 +50,10 @@ class AgentV214(base.Agent):
                 raise RuntimeError("controller denied UNPIN: " + str(auth.get("reason") or "denied"))
             if str(auth.get("cid") or "") != cid:
                 raise RuntimeError("controller UNPIN authorization CID mismatch")
+            # Idempotent destructive execution: if a previous attempt already
+            # removed the pin but its report was lost, do not call pin/rm again.
+            if not self.ipfs.is_pinned(cid):
+                return {"job_id": job_id, "state": "unpinned", "lease_until": lease_until}
             self.ipfs.unpin(cid)
             if self.ipfs.is_pinned(cid):
                 raise RuntimeError("pin/rm returned but recursive pin still exists")
