@@ -73,6 +73,44 @@ PORT          = int(os.environ.get('HB_FILES_PORT', '8091'))
 TEP_API       = 'http://127.0.0.1:47778/'
 LOG           = logging.getLogger('hb-files')
 
+# v2.1.3 replication hook. Disabled by default during rollout.
+REPL_HOOK_ENABLED = os.environ.get('HB_REPL_HOOK_ENABLED', '0') == '1'
+REPL_CONTROLLER = os.environ.get('HB_REPL_CONTROLLER', 'http://127.0.0.1:8095').rstrip('/')
+REPL_HOOK_TOKEN = os.environ.get('HB_REPL_HOOK_TOKEN', '')
+REPL_NODE_ID = os.environ.get('NODE_ID', '').strip()
+
+def _register_replication(cid: str, size_bytes: int, reference_id: str) -> dict:
+    """Register a successful local IPFS upload with the replication controller.
+
+    This hook is intentionally fail-open for the upload itself: a locally pinned
+    file remains usable even if the controller is unavailable. The response
+    explicitly reports registration failure, so HB-Files never claims durable
+    replication that was not registered.
+    """
+    if not REPL_HOOK_ENABLED:
+        return {'enabled': False, 'registered': False, 'state': 'disabled'}
+    if not REPL_HOOK_TOKEN or not REPL_NODE_ID:
+        LOG.error('Replication hook enabled but token/NODE_ID is missing')
+        return {'enabled': True, 'registered': False, 'state': 'misconfigured'}
+    try:
+        import hb_replication_client
+        client = hb_replication_client.ReplicationClient(REPL_CONTROLLER, REPL_HOOK_TOKEN)
+        result = client.register(
+            cid, int(size_bytes), REPL_NODE_ID, reference_id=reference_id
+        )
+        return {
+            'enabled': True,
+            'registered': True,
+            'state': str(result.get('state') or 'pending'),
+            'target_replicas': result.get('target_replicas'),
+            'required_committable': result.get('required_committable'),
+            'confirmed_total': result.get('confirmed_total'),
+            'confirmed_committable': result.get('confirmed_committable'),
+        }
+    except Exception as e:
+        LOG.error('Replication registration failed for CID %s: %s', cid, e)
+        return {'enabled': True, 'registered': False, 'state': 'registration-failed'}
+
 
 # ── Data models ────────────────────────────────────────────────────────────────
 
@@ -633,7 +671,9 @@ class HBFilesHandler(BaseHTTPRequestHandler):
             sha256=sha256, path='', cid=cid, encrypted=is_enc,
         )
         _storage.save_file(rec)
-        LOG.info("Upload: %s  %d bytes  tenant=%s", filename, len(file_data), tenant.id)
+        replication = _register_replication(cid, len(file_data), file_id)
+        LOG.info("Upload: %s  %d bytes  tenant=%s replication=%s",
+                 filename, len(file_data), tenant.id, replication.get('state'))
         self.send_json({
             'id':         file_id,
             'filename':   filename,
@@ -642,6 +682,7 @@ class HBFilesHandler(BaseHTTPRequestHandler):
             'mime_type':  mime,
             'cid':        cid,
             'encrypted':  is_enc,
+            'replication': replication,
         }, 201)
 
     # ── Share link creation ────────────────────────────────────────────────────

@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import urllib.request
 import urllib.error
+import urllib.parse
 import uuid
 
 
@@ -103,6 +104,44 @@ class IPFSClient:
         if not cid:
             raise IPFSError("cat: CID vuoto")
         return self._post(f"cat?arg={cid}")
+
+    # ---- replication primitives (v2.1.3 candidate) -------------------------
+    def pin(self, cid: str) -> bool:
+        """Recursively pin an existing CID via the local Kubo RPC.
+
+        Kubo fetches any missing blocks from the private swarm. A successful
+        request is not treated as durable replication until is_pinned() also
+        confirms a recursive local pin.
+        """
+        if not cid:
+            raise IPFSError("pin: CID vuoto")
+        query = urllib.parse.urlencode({"arg": cid, "recursive": "true"})
+        raw = self._post("pin/add?" + query)
+        try:
+            data = json.loads(raw.decode("utf-8", "replace"))
+        except json.JSONDecodeError as e:
+            raise IPFSError("pin/add: risposta JSON non valida") from e
+        pins = data.get("Pins") or []
+        if pins and cid not in pins:
+            raise IPFSError("pin/add: CID richiesto non confermato dalla risposta")
+        return True
+
+    def is_pinned(self, cid: str) -> bool:
+        """Return True only when Kubo reports CID as a recursive local pin."""
+        if not cid:
+            return False
+        query = urllib.parse.urlencode({"arg": cid, "type": "recursive"})
+        try:
+            raw = self._post("pin/ls?" + query)
+        except IPFSError:
+            return False
+        try:
+            data = json.loads(raw.decode("utf-8", "replace"))
+        except json.JSONDecodeError:
+            return False
+        keys = data.get("Keys") or {}
+        entry = keys.get(cid)
+        return bool(entry and str(entry.get("Type") or "").lower() == "recursive")
 
     # ---- pin rm: rimuove il pin (usato in delete) --------------------------
     def unpin(self, cid: str) -> bool:

@@ -1,0 +1,114 @@
+HashBurst Node Installer v2.1.3 candidate acceptance
+
+PASS systemd_storage_port_8094
+PASS systemd_timeout_3
+PASS systemd_not_storage_8093
+PASS server_default_8094
+PASS edge_example_explicit_best_effort
+PASS offline_unknown_fail_safe
+PASS offline_edge_role_best_effort
+PASS online_edge_role_best_effort
+PASS online_primary_role_committable
+PASS explorer_new_committable_field
+PASS explorer_new_best_effort_field
+PASS explorer_no_element_style_assignment
+PASS v2.1.2 release regression (12 checks)
+test_current_four_node_snapshot (__main__.AggregatorTests.test_current_four_node_snapshot) ... ok
+test_duplicate_node_id_not_double_counted (__main__.AggregatorTests.test_duplicate_node_id_not_double_counted) ... ok
+test_edge_capacity_never_becomes_sellable (__main__.AggregatorTests.test_edge_capacity_never_becomes_sellable) ... ok
+test_invalid_offline_class_is_unknown (__main__.AggregatorTests.test_invalid_offline_class_is_unknown) ... ok
+test_offline_configured_edge_role_infers_best_effort (__main__.AggregatorTests.test_offline_configured_edge_role_infers_best_effort) ... ok
+test_offline_edge_preserves_best_effort_class (__main__.AggregatorTests.test_offline_edge_preserves_best_effort_class) ... ok
+test_offline_unclassified_is_unknown_never_committable (__main__.AggregatorTests.test_offline_unclassified_is_unknown_never_committable) ... ok
+test_online_validated_role_overrides_bad_config_class (__main__.AggregatorTests.test_online_validated_role_overrides_bad_config_class) ... ok
+test_physical_usage_caps_sellable (__main__.AggregatorTests.test_physical_usage_caps_sellable) ... ok
+test_primary_offline_is_fail_closed (__main__.AggregatorTests.test_primary_offline_is_fail_closed) ... ok
+test_admin_default_secret_rejected (__main__.PackageTests.test_admin_default_secret_rejected) ... ok
+test_blockchain_role_does_not_run_ipfs_setup (__main__.PackageTests.test_blockchain_role_does_not_run_ipfs_setup) ... ok
+test_cid_unpin_reference_count (__main__.PackageTests.test_cid_unpin_reference_count) ... ok
+test_direct_package_layout (__main__.PackageTests.test_direct_package_layout) ... ok
+test_example_storage_classes_are_explicit (__main__.PackageTests.test_example_storage_classes_are_explicit) ... ok
+test_existing_public_ipfs_can_be_reused (__main__.PackageTests.test_existing_public_ipfs_can_be_reused) ... ok
+test_explorer_patcher_is_csp_safe (__main__.PackageTests.test_explorer_patcher_is_csp_safe) ... ok
+test_no_ciphertext_rstrip_corruption (__main__.PackageTests.test_no_ciphertext_rstrip_corruption) ... ok
+test_no_implicit_kubo_replacement (__main__.PackageTests.test_no_implicit_kubo_replacement) ... ok
+test_panel_has_no_inline_filename_download_handler (__main__.PackageTests.test_panel_has_no_inline_filename_download_handler) ... ok
+test_storage_aggregator_port_contract (__main__.PackageTests.test_storage_aggregator_port_contract) ... ok
+test_swarm_key_is_fail_closed (__main__.PackageTests.test_swarm_key_is_fail_closed) ... ok
+
+----------------------------------------------------------------------
+Ran 22 tests in 0.011s
+
+OK
+test_trailing_bytes_preserved (__main__.MultipartByteTests.test_trailing_bytes_preserved) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+OK
+test_deterministic_placement (tests.test_replication_policy.PlacementPolicyTests.test_deterministic_placement) ... ok
+test_edge_never_satisfies_committable_requirement (tests.test_replication_policy.PlacementPolicyTests.test_edge_never_satisfies_committable_requirement) ... ok
+test_existing_committable_replica_counts_toward_m (tests.test_replication_policy.PlacementPolicyTests.test_existing_committable_replica_counts_toward_m) ... ok
+test_full_or_too_small_nodes_are_excluded (tests.test_replication_policy.PlacementPolicyTests.test_full_or_too_small_nodes_are_excluded) ... ok
+test_n3_m2_requires_two_committable_and_prefers_edge_for_extra (tests.test_replication_policy.PlacementPolicyTests.test_n3_m2_requires_two_committable_and_prefers_edge_for_extra) ... ok
+test_no_duplicate_assignment_to_existing_node (tests.test_replication_policy.PlacementPolicyTests.test_no_duplicate_assignment_to_existing_node) ... ok
+test_offline_disabled_and_unknown_nodes_are_excluded (tests.test_replication_policy.PlacementPolicyTests.test_offline_disabled_and_unknown_nodes_are_excluded) ... ok
+test_duplicate_reference_registration_does_not_inflate_refcount (tests.test_replication_repair.ReferenceIdempotencyTests.test_duplicate_reference_registration_does_not_inflate_refcount) ... ok
+test_reference_id_cannot_be_reused_for_different_cid (tests.test_replication_repair.ReferenceIdempotencyTests.test_reference_id_cannot_be_reused_for_different_cid) ... ok
+test_two_logical_references_increment_and_release_idempotently (tests.test_replication_repair.ReferenceIdempotencyTests.test_two_logical_references_increment_and_release_idempotently) ... ok
+test_committable_failure_beyond_grace_repairs_to_another_committable (tests.test_replication_repair.ReplicationRepairTests.test_committable_failure_beyond_grace_repairs_to_another_committable) ... ok
+test_create_pin_assignment_is_idempotent_under_race (tests.test_replication_repair.ReplicationRepairTests.test_create_pin_assignment_is_idempotent_under_race) ... ok
+test_duplicate_failed_job_report_does_not_double_count_attempt (tests.test_replication_repair.ReplicationRepairTests.test_duplicate_failed_job_report_does_not_double_count_attempt) ... ok
+test_duplicate_success_job_report_is_idempotent (tests.test_replication_repair.ReplicationRepairTests.test_duplicate_success_job_report_is_idempotent) ... ok
+test_edge_offline_beyond_grace_triggers_replacement (tests.test_replication_repair.ReplicationRepairTests.test_edge_offline_beyond_grace_triggers_replacement) ... ok
+test_edge_offline_within_six_hour_grace_does_not_trigger_replacement (tests.test_replication_repair.ReplicationRepairTests.test_edge_offline_within_six_hour_grace_does_not_trigger_replacement) ... ok
+test_failed_pin_is_not_counted_and_repair_selects_another_node (tests.test_replication_repair.ReplicationRepairTests.test_failed_pin_is_not_counted_and_repair_selects_another_node) ... ok
+test_insufficient_capacity_keeps_object_degraded_and_creates_no_fake_replica (tests.test_replication_repair.ReplicationRepairTests.test_insufficient_capacity_keeps_object_degraded_and_creates_no_fake_replica) ... ok
+test_leased_job_is_not_redelivered_before_lease_expiry (tests.test_replication_repair.ReplicationRepairTests.test_leased_job_is_not_redelivered_before_lease_expiry) ... ok
+test_n3_m2_reaches_healthy_after_confirmations (tests.test_replication_repair.ReplicationRepairTests.test_n3_m2_reaches_healthy_after_confirmations) ... ok
+test_periodic_verify_job_is_created_for_stale_confirmation (tests.test_replication_repair.ReplicationRepairTests.test_periodic_verify_job_is_created_for_stale_confirmation) ... ok
+test_stale_failed_report_from_old_lease_is_ignored_after_redelivery (tests.test_replication_repair.ReplicationRepairTests.test_stale_failed_report_from_old_lease_is_ignored_after_redelivery) ... ok
+test_under_threshold_is_reported_not_hidden_by_desired_assignments (tests.test_replication_repair.ReplicationRepairTests.test_under_threshold_is_reported_not_hidden_by_desired_assignments) ... ok
+test_kubo_pin_exception_is_reported (tests.test_replica_agent.ReplicaAgentTests.test_kubo_pin_exception_is_reported) ... ok
+test_pin_job_failure_is_reported_and_not_claimed_pinned (tests.test_replica_agent.ReplicaAgentTests.test_pin_job_failure_is_reported_and_not_claimed_pinned) ... ok
+test_pin_job_requires_pin_ls_confirmation (tests.test_replica_agent.ReplicaAgentTests.test_pin_job_requires_pin_ls_confirmation) ... ok
+test_unpin_is_disabled_by_default (tests.test_replica_agent.ReplicaAgentTests.test_unpin_is_disabled_by_default) ... ok
+test_verify_job_succeeds_only_when_recursive_pin_exists (tests.test_replica_agent.ReplicaAgentTests.test_verify_job_succeeds_only_when_recursive_pin_exists) ... ok
+test_controller_failure_does_not_claim_replication (tests.test_replication_hook.ReplicationHookTests.test_controller_failure_does_not_claim_replication) ... Replication registration failed for CID bafy: controller unavailable
+ok
+test_enabled_hook_uses_file_id_as_idempotent_reference (tests.test_replication_hook.ReplicationHookTests.test_enabled_hook_uses_file_id_as_idempotent_reference) ... ok
+test_hook_is_disabled_by_default (tests.test_replication_hook.ReplicationHookTests.test_hook_is_disabled_by_default) ... ok
+
+----------------------------------------------------------------------
+Ran 31 tests in 0.577s
+
+OK
+
+[HB-Files] Default tenant API token: 1685dad295d2d9f820c1c549f740d0a75a66625a193b32db
+           Save to /etc/hashburst/env as HB_FILES_DEFAULT_TOKEN
+
+PASS installer_version_2_1_3
+PASS replication_controller_packaged
+PASS replica_agent_packaged
+PASS default_n_3
+PASS default_m_2
+PASS edge_grace_6h
+PASS controller_default_observe
+PASS controller_local_bind_default
+PASS controller_port_8095
+PASS agent_kubo_localhost
+PASS unpin_default_disabled
+PASS ipfs_pin_primitive
+PASS ipfs_pin_verification
+PASS installer_does_not_enable_controller
+PASS installer_does_not_enable_agent
+PASS controller_unit_no_missing_hashburst_user
+PASS agent_unit_no_missing_hashburst_user
+PASS ci_runs_replication_tests
+PASS hbfiles_replication_hook_default_off
+PASS hbfiles_has_replication_client_path
+PASS mining_port_contract_preserved
+PASS storage_aggregator_port_contract_preserved
+PASS v2.1.3 release regression (22 checks)
+PASS py_compile
+PASS shell syntax

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.1.2"
+VERSION="2.1.3"
 ROLE="storage"                    # storage | full | blockchain | edge
 STORAGE_ROLE=""                  # primary | secondary | edge
 STORAGE_BACKEND="auto"           # auto | zfs | filesystem
@@ -113,6 +113,10 @@ need_file() { [ -f "$1" ] || { echo "ERROR: required package file missing: $1" >
 port_listening() { ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$1$"; }
 
 need_file "$SCRIPT_DIR/bin/hashburst-node"
+need_file "$SCRIPT_DIR/replication/hb_replication_controller.py"
+need_file "$SCRIPT_DIR/replication/hb_replica_agent.py"
+need_file "$SCRIPT_DIR/config/replication-controller.env.example"
+need_file "$SCRIPT_DIR/config/replica-agent.env.example"
 if [ "$ROLE" != blockchain ]; then
   need_file "$SCRIPT_DIR/hbfiles/hb_files.py"
   need_file "$SCRIPT_DIR/ipfs-scripts/01-install-ipfs-dual-noZFS.sh"
@@ -212,6 +216,17 @@ fi
 ADMIN_SECRET="${OLD_ADMIN:-$(openssl rand -hex 32)}"
 PANEL_SECRET="${OLD_PANEL:-$(openssl rand -hex 32)}"
 
+# v2.1.3: ship replication components on every role, but never enable them
+# automatically. Operators activate observe/pin-only modes during rollout.
+install -d -m 0755 /opt/hashburst/replication /var/lib/hashburst/replication
+cp -a "$SCRIPT_DIR/replication/." /opt/hashburst/replication/
+if [ ! -f /etc/hashburst/replication-controller.env ]; then
+  install -m 0600 "$SCRIPT_DIR/config/replication-controller.env.example" /etc/hashburst/replication-controller.env
+fi
+if [ ! -f /etc/hashburst/replica-agent.env ]; then
+  install -m 0600 "$SCRIPT_DIR/config/replica-agent.env.example" /etc/hashburst/replica-agent.env
+fi
+
 # Configure IPFS only for storage/full/edge. Blockchain-only never touches it.
 if [ "$ROLE" != blockchain ]; then
   HB_STORAGE_ROOT="$STORAGE_PATH" HB_PUBLIC_IPFS_MODE="$PUBLIC_IPFS_MODE" \
@@ -248,6 +263,9 @@ HB_FILES_PUBLIC_SUMMARY_BIND=0.0.0.0
 HB_FILES_PORT=8091
 HB_FILES_MAX_MB=10240
 HB_AUTH_MODE=legacy
+HB_REPL_HOOK_ENABLED=0
+HB_REPL_CONTROLLER=http://127.0.0.1:8095
+HB_REPL_HOOK_TOKEN=
 ENV
 [ -n "$CAPACITY_GB" ] && echo "HB_CAPACITY_LIMIT_GB=${CAPACITY_GB}" >> /etc/hashburst/env
 chmod 600 /etc/hashburst/env
@@ -289,7 +307,7 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; the
     echo "WARNING: UFW active but no --aggregator-ip supplied; :8091 was not opened."
   fi
 else
-  echo "WARNING: UFW is not active. HB-Files binds only to localhost in v2.1.2; publish summary through nginx/TEP or explicitly configure a protected listener."
+  echo "WARNING: UFW is not active. HB-Files binds only to localhost in v2.1.3; publish summary through nginx/TEP or explicitly configure a protected listener."
 fi
 
 if [ "$ROLE" != blockchain ]; then

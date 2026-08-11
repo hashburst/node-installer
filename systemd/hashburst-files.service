@@ -11,6 +11,7 @@ ExecStart=/usr/bin/python3 /opt/hashburst-files/hb_files.py --port 8091
 Restart=on-failure
 RestartSec=5
 EnvironmentFile=/etc/hashburst/env
+Environment=PYTHONPATH=/opt/hashburst/replication
 UMask=0077
 NoNewPrivileges=yes
 PrivateTmp=yes

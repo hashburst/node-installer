@@ -17,14 +17,20 @@ jobs:
           python-version: '3.12'
       - name: Python syntax
         run: |
-          python -m py_compile aggregator/hb_aggregator.py aggregator/hb_aggregator_server.py integrations/explorer/patch_hashburst_explorer.py
+          python -m py_compile aggregator/*.py hbfiles/*.py replication/*.py integrations/explorer/patch_hashburst_explorer.py
       - name: Shell syntax
         run: |
           bash -n install.sh
           bash -n ipfs-scripts/01-install-ipfs-dual-ZFS.sh
           bash -n ipfs-scripts/01-install-ipfs-dual-noZFS.sh
           bash -n ipfs-scripts/02-verify.sh
-      - name: Release tests
-        run: python tests/test_release.py
-      - name: Multipart regression
-        run: python tests/test_multipart_bytes.py
+          bash -n tests/network_probe.sh
+      - name: Legacy release tests
+        run: |
+          python tests/v2.1.2_release_regression.py
+          python tests/test_release.py
+          python tests/test_multipart_bytes.py
+      - name: Replication controller tests
+        run: python -W error::ResourceWarning -m unittest -v tests.test_replication_policy tests.test_replication_repair tests.test_replica_agent tests.test_replication_hook
+      - name: v2.1.3 release contract
+        run: python tests/v2.1.3_release_regression.py
