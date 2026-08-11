@@ -42,7 +42,6 @@ class ControllerV214(base.Controller):
         super().__init__(db, nodes_file, policy, "pin-only" if mode == "full" else mode)
         self.mode = mode
         self.unpin_enabled = bool(unpin_enabled)
-        self._last_full_reconcile = 0
 
     def release_object(self, payload: dict) -> dict:
         cid = str(payload.get("cid") or "").strip()
@@ -56,17 +55,20 @@ class ControllerV214(base.Controller):
         )
         if result.get("ok"):
             self.reconcile_cid(cid)
-        result["unpin_scheduled"] = bool(
-            result.get("final_release") and self.mode == "full" and self.unpin_enabled
-        )
+        # Final release enters a grace period; do not claim a physical UNPIN job
+        # was scheduled before that deadline is actually reached.
+        result["unpin_scheduled"] = False
+        result["cleanup_pending"] = bool(result.get("final_release"))
+        if result.get("final_release"):
+            obj = self.db.object(cid)
+            released_at = int((obj or {}).get("released_at") or 0)
+            result["unpin_not_before"] = released_at + DELETE_GRACE if released_at else 0
         return result
 
     def assignments(self, node_id: str) -> dict:
         if self.mode == "observe":
             jobs = []
         else:
-            # UNPIN_VERIFY is non-destructive and may be delivered in pin-only
-            # mode to resolve an uncertain crash outcome safely.
             allowed = {"PIN", "VERIFY", "UNPIN_VERIFY"}
             if self.mode == "full" and self.unpin_enabled:
                 allowed.add("UNPIN")
@@ -114,18 +116,28 @@ class ControllerV214(base.Controller):
         required_comm = int(obj["committable_m"])
         if len(pinned) <= target:
             return
+        active_nodes = self.db.active_unpin_nodes(obj["cid"], "trim-extra-replica")
+        # Existing pending trim jobs already account for copies scheduled for
+        # removal. Subtract them so repeated reconciliation cannot over-trim.
+        remove = max(0, len(pinned) - target - len(active_nodes))
+        if remove <= 0:
+            return
         comm = sum(1 for r in pinned if r.get("class_at_assignment") == COMMITTABLE)
+        active_comm = sum(
+            1 for r in pinned
+            if r["node_id"] in active_nodes and r.get("class_at_assignment") == COMMITTABLE
+        )
+        comm_after_active = comm - active_comm
         candidates = sorted(
-            pinned,
+            [r for r in pinned if r["node_id"] not in active_nodes],
             key=lambda r: (0 if r.get("class_at_assignment") == BEST_EFFORT else 1,
                            int(r.get("last_verified_at") or 0), r["node_id"]),
         )
-        remove = len(pinned) - target
         for replica in candidates:
             if remove <= 0:
                 break
             is_comm = replica.get("class_at_assignment") == COMMITTABLE
-            if is_comm and comm - 1 < required_comm:
+            if is_comm and comm_after_active - 1 < required_comm:
                 continue
             job = self.db.create_unpin_job(
                 obj["cid"], replica["node_id"], int(obj["generation"]), reason="trim-extra-replica"
@@ -133,7 +145,7 @@ class ControllerV214(base.Controller):
             if job:
                 remove -= 1
                 if is_comm:
-                    comm -= 1
+                    comm_after_active -= 1
 
     def reconcile_cid(self, cid: str):
         obj = self.db.object(cid)
@@ -154,11 +166,17 @@ class ControllerV214(base.Controller):
                 LOG.exception("reconcile failed cid=%s", obj.get("cid"))
 
     def loop(self):
-        # Fast repair remains every REPAIR_INTERVAL. The same pass is safe and
-        # idempotent; RECONCILE_INTERVAL is retained as an operator-visible
-        # configuration contract for future expensive full scans.
         while not self._stop.wait(base.REPAIR_INTERVAL):
             self.reconcile_all()
+
+    def maintenance_loop(self):
+        while not self._stop.wait(RECONCILE_INTERVAL):
+            try:
+                self.db.recover_v214()
+                self.reconcile_all()
+                self.db.audit("FULL_RECONCILE", interval_sec=RECONCILE_INTERVAL)
+            except Exception:
+                LOG.exception("full reconciliation failed")
 
 
 class APIHandlerV214(base.APIHandler):
@@ -240,8 +258,10 @@ def main():
     ctl = ControllerV214(db, args.nodes, policy, args.mode, UNPIN_ENABLED)
     ctl.sync_registry()
     ctl.reconcile_all()
-    thread = threading.Thread(target=ctl.loop, name="repair-loop-v214", daemon=True)
-    thread.start()
+    repair_thread = threading.Thread(target=ctl.loop, name="repair-loop-v214", daemon=True)
+    maintenance_thread = threading.Thread(target=ctl.maintenance_loop, name="reconcile-loop-v214", daemon=True)
+    repair_thread.start()
+    maintenance_thread.start()
     server = ControllerServer((args.bind, args.port), APIHandlerV214, ctl)
     def shutdown(_sig, _frame):
         ctl.stop()
