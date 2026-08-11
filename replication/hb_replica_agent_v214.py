@@ -23,12 +23,21 @@ ALLOW_UNPIN = os.environ.get("HB_REPL_ALLOW_UNPIN", "0") == "1"
 class AgentV214(base.Agent):
     def execute_job(self, job: dict) -> dict:
         operation = str(job.get("operation") or "")
-        if operation != "UNPIN":
-            return super().execute_job(job)
-
         job_id = str(job.get("job_id") or "")
         cid = str(job.get("cid") or "")
         lease_until = int(job.get("lease_until") or 0)
+
+        if operation == "UNPIN_VERIFY":
+            try:
+                state = "verified" if self.ipfs.is_pinned(cid) else "unpinned"
+                return {"job_id": job_id, "state": state, "lease_until": lease_until}
+            except Exception as exc:
+                return {"job_id": job_id, "state": "failed", "lease_until": lease_until,
+                        "error": str(exc)[:500]}
+
+        if operation != "UNPIN":
+            return super().execute_job(job)
+
         try:
             if not ALLOW_UNPIN:
                 raise RuntimeError("UNPIN disabled by HB_REPL_ALLOW_UNPIN=0")
