@@ -34,3 +34,5 @@ jobs:
         run: python -W error::ResourceWarning -m unittest -v tests.test_replication_policy tests.test_replication_repair tests.test_replica_agent tests.test_replication_hook
       - name: v2.1.3 release contract
         run: python tests/v2.1.3_release_regression.py
+      - name: v2.1.4 lifecycle safety
+        run: python -W error::ResourceWarning -m unittest -v tests.test_replication_v214
