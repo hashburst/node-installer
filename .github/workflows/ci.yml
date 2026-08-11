@@ -33,6 +33,6 @@ jobs:
       - name: Replication v2.1.3 compatibility tests
         run: python -W error::ResourceWarning -m unittest -v tests.test_replication_policy tests.test_replication_repair tests.test_replica_agent tests.test_replication_hook
       - name: v2.1.4 lifecycle safety
-        run: python -W error::ResourceWarning -m unittest -v tests.test_replication_v214 tests.test_replication_v214_policy
+        run: python -W error::ResourceWarning -m unittest -v tests.test_replication_v214 tests.test_replication_v214_policy tests.test_replication_v214_controller tests.test_replication_v214_agent_idempotency
       - name: v2.1.4 release contract
         run: python tests/v2.1.4_release_regression.py
