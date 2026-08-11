@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.1.3"
+VERSION="2.1.4"
 ROLE="storage"                    # storage | full | blockchain | edge
 STORAGE_ROLE=""                  # primary | secondary | edge
 STORAGE_BACKEND="auto"           # auto | zfs | filesystem
@@ -52,17 +52,14 @@ Safety:
   --dry-run
 
 Examples:
-  # Primary storage using existing /datapool but no usable zfs CLI:
   sudo ./install.sh --role full --storage-role primary \
     --storage-backend filesystem --storage-path /datapool/hashburst \
     --capacity-gb 5120 --public-ipfs-mode auto
 
-  # Secondary storage VPS:
   sudo ./install.sh --role storage --storage-role secondary \
     --capacity-gb 400 --swarm-master-ip 85.233.199.35 \
     --swarm-peer-id PEER --aggregator-ip 64.31.4.9
 
-  # Edge / workstation behind NAT (best-effort replica, never sellable):
   sudo ./install.sh --role edge --storage-role edge \
     --capacity-gb 100 --swarm-master-ip 85.233.199.35 --swarm-peer-id PEER
 USAGE
@@ -114,7 +111,11 @@ port_listening() { ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$1$";
 
 need_file "$SCRIPT_DIR/bin/hashburst-node"
 need_file "$SCRIPT_DIR/replication/hb_replication_controller.py"
+need_file "$SCRIPT_DIR/replication/hb_replication_controller_v214.py"
+need_file "$SCRIPT_DIR/replication/hb_replication_v214_db.py"
 need_file "$SCRIPT_DIR/replication/hb_replica_agent.py"
+need_file "$SCRIPT_DIR/replication/hb_replica_agent_v214.py"
+need_file "$SCRIPT_DIR/hbfiles/hb_ipfs.py"
 need_file "$SCRIPT_DIR/config/replication-controller.env.example"
 need_file "$SCRIPT_DIR/config/replica-agent.env.example"
 if [ "$ROLE" != blockchain ]; then
@@ -122,7 +123,6 @@ if [ "$ROLE" != blockchain ]; then
   need_file "$SCRIPT_DIR/ipfs-scripts/01-install-ipfs-dual-noZFS.sh"
 fi
 
-# Resolve backend explicitly and safely.
 ZFS_OK="no"
 if command -v zfs >/dev/null 2>&1 && command -v zpool >/dev/null 2>&1 \
    && zfs list -H "$ZFS_DATASET" >/dev/null 2>&1; then
@@ -144,7 +144,6 @@ if [ -z "$STORAGE_PATH" ]; then
   fi
 fi
 
-# Federation is fail-closed for any non-primary storage/edge node.
 if [ "$ROLE" != blockchain ] && [ "$STORAGE_ROLE" != primary ]; then
   [ -f /tmp/swarm.key ] || [ -f /etc/hashburst/swarm.key ] || {
     echo "ERROR: swarm.key missing. Non-primary nodes must receive the network swarm.key; refusing to create a split private network." >&2
@@ -156,8 +155,6 @@ if [ "$ROLE" != blockchain ] && [ "$STORAGE_ROLE" != primary ]; then
   }
 fi
 
-# Resolve HB-Files bind safely. Remote summary exposure is allowed automatically
-# only when UFW is already active and an aggregator IP is supplied.
 UFW_ACTIVE="no"
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then UFW_ACTIVE="yes"; fi
 if [ "$FILES_BIND" = auto ]; then
@@ -168,7 +165,6 @@ if [ "$FILES_BIND" = "0.0.0.0" ] && [ "$UFW_ACTIVE" != yes ] && [ "$ALLOW_UNFIRE
   exit 1
 fi
 
-# Avoid changing a pre-existing public IPFS daemon unless explicitly managed.
 if [ "$PUBLIC_IPFS_MODE" = auto ]; then
   if port_listening 5001 || systemctl is-active --quiet ipfs 2>/dev/null || systemctl is-active --quiet ipfs-public 2>/dev/null; then
     PUBLIC_IPFS_MODE="reuse"
@@ -198,7 +194,6 @@ INFO
 install -d -m 0755 /etc/hashburst /var/log/hashburst /var/lib/hashburst
 install -m 0755 "$SCRIPT_DIR/bin/hashburst-node" /usr/local/bin/hashburst-node
 
-# Install network swarm key before private-IPFS setup.
 if [ "$ROLE" != blockchain ]; then
   if [ -f /tmp/swarm.key ]; then install -m 0600 /tmp/swarm.key /etc/hashburst/swarm.key; fi
   if [ "$STORAGE_ROLE" = primary ] && [ ! -f /etc/hashburst/swarm.key ]; then
@@ -207,7 +202,6 @@ if [ "$ROLE" != blockchain ]; then
   fi
 fi
 
-# Preserve existing secrets on reinstall.
 OLD_ADMIN=""; OLD_PANEL=""
 if [ -f /etc/hashburst/env ]; then
   OLD_ADMIN="$(grep '^HB_ADMIN_SECRET=' /etc/hashburst/env | head -1 | cut -d= -f2- || true)"
@@ -216,10 +210,13 @@ fi
 ADMIN_SECRET="${OLD_ADMIN:-$(openssl rand -hex 32)}"
 PANEL_SECRET="${OLD_PANEL:-$(openssl rand -hex 32)}"
 
-# v2.1.3: ship replication components on every role, but never enable them
-# automatically. Operators activate observe/pin-only modes during rollout.
+# v2.1.4 ships the replication lifecycle components on every role but never
+# enables controller/agent automatically. Observe mode and both UNPIN gates are
+# fail-closed defaults. hb_ipfs.py is also installed adjacent to the agent so
+# direct systemd execution does not depend on PYTHONPATH.
 install -d -m 0755 /opt/hashburst/replication /var/lib/hashburst/replication
 cp -a "$SCRIPT_DIR/replication/." /opt/hashburst/replication/
+install -m 0644 "$SCRIPT_DIR/hbfiles/hb_ipfs.py" /opt/hashburst/replication/hb_ipfs.py
 if [ ! -f /etc/hashburst/replication-controller.env ]; then
   install -m 0600 "$SCRIPT_DIR/config/replication-controller.env.example" /etc/hashburst/replication-controller.env
 fi
@@ -227,7 +224,6 @@ if [ ! -f /etc/hashburst/replica-agent.env ]; then
   install -m 0600 "$SCRIPT_DIR/config/replica-agent.env.example" /etc/hashburst/replica-agent.env
 fi
 
-# Configure IPFS only for storage/full/edge. Blockchain-only never touches it.
 if [ "$ROLE" != blockchain ]; then
   HB_STORAGE_ROOT="$STORAGE_PATH" HB_PUBLIC_IPFS_MODE="$PUBLIC_IPFS_MODE" \
     HB_KUBO_VERSION="$KUBO_VERSION" bash "$SCRIPT_DIR/ipfs-scripts/01-install-ipfs-dual-noZFS.sh"
@@ -296,7 +292,6 @@ if [ "$ROLE" != blockchain ]; then
   systemctl is-active --quiet hashburst-files || { journalctl -u hashburst-files -n 40 --no-pager; exit 1; }
 fi
 
-# Firewall: do not pretend a rule exists when ufw is disabled.
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
   ufw allow 4011/tcp comment 'HashBurst private IPFS swarm'
   if [ "$PUBLIC_IPFS_MODE" = managed ]; then ufw allow 4001/tcp comment 'IPFS public swarm'; fi
@@ -307,7 +302,7 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; the
     echo "WARNING: UFW active but no --aggregator-ip supplied; :8091 was not opened."
   fi
 else
-  echo "WARNING: UFW is not active. HB-Files binds only to localhost in v2.1.3; publish summary through nginx/TEP or explicitly configure a protected listener."
+  echo "WARNING: UFW is not active. HB-Files binds only to localhost by default; publish summary through nginx/TEP or explicitly configure a protected listener."
 fi
 
 if [ "$ROLE" != blockchain ]; then

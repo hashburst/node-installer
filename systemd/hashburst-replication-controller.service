@@ -1,12 +1,12 @@
 [Unit]
-Description=HashBurst Replication Controller
+Description=HashBurst Replication Controller v2.1.4
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 EnvironmentFile=-/etc/hashburst/replication-controller.env
-ExecStart=/usr/bin/python3 /opt/hashburst/replication/hb_replication_controller.py
+ExecStart=/usr/bin/python3 /opt/hashburst/replication/hb_replication_controller_v214.py
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
