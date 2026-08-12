@@ -1,148 +1,184 @@
-# HashBurst — Node Installer
+# HashBurst — Node Installer v2.1.5
 
-Complete, self-contained installer for a HashBurst node: blockchain +
-sovereign storage (HB-Files) on a private IPFS network.
+Self-contained HashBurst installer for blockchain, HB-Files sovereign storage,
+private IPFS federation, HB-TEP encrypted transport, replication components and
+optional mining participation.
 
-**Works on both ZFS and non-ZFS machines.** The installer auto-detects the
-environment and picks the correct IPFS setup, so the `no such pool 'datapool'`
-error on non-ZFS hosts cannot happen.
+The installer is intended to produce a repeatable node from a published release.
+**No local Python patching is part of the installation procedure.**
 
-The HB-Files code ships fully patched (authentication, IPFS backend, client-side
-encryption, capacity accounting, public summary endpoint, role awareness) — no
-patch steps are needed.
+## v2.1.5 highlights
 
-## Contents
+- canonical HB-TEP-APP/1 daemon and local IPC
+- X25519 + AES-256-GCM TEP transport
+- automatic, idempotent TEP onboarding for `full` / `blockchain` nodes
+- stable blockchain Peer ID bound to TEP identity
+- TEP public key inserted before blockchain `NODE_REGISTRATION`
+- blockchain-DNS peer discovery with a public rendezvous bootstrap
+- NAT/edge relay trust configuration while relay service remains disabled by default
+- storage aggregator TEP transport with separate routing and storage-summary identities
+- production flat-layout support for `hb_aggregator.py` + `hb_tep_adapter.py`
+- durable replication N=3 / M=2 safety inherited from v2.1.4
+- Kubo private RPC remains localhost-only
+- edge storage never contributes committable/sellable capacity
 
-```
-hashburst-node/
-  install.sh                     guided installer (auto-detects ZFS)
-  bin/hashburst-node             blockchain node binary
-  hbfiles/                       complete HB-Files code (all layers applied)
-  replication/                   replication controller, policy, DB and agent
-  ipfs-scripts/
-    01-install-ipfs-dual-ZFS.sh    dual IPFS on ZFS (datapool)
-    01-install-ipfs-dual-noZFS.sh  dual IPFS on a normal filesystem
-    02-verify.sh                   IPFS verification
-  systemd/                       service units (node, files, panel, replication)
-  aggregator/                    network aggregator (for the reference node)
-```
+## Supported installation model
 
-## Prerequisites
+The supported production target is Ubuntu x86_64 with root access, Python 3,
+`curl`, systemd and Kubo/IPFS as installed or managed by this package.
 
-- Ubuntu x86_64, root access, Python 3, curl
-- For a node that joins the network: `/tmp/swarm.key` copied from the primary
-- For a storage node: `/tmp/list.json` copied from the primary
+A machine can install all HashBurst software from the public GitHub release, but
+joining the **private IPFS federation** still requires the network `swarm.key`.
+That key is a secret and is deliberately **not** stored in this public repository.
+Existing installations keep `/etc/hashburst/swarm.key`; a new non-primary node
+must receive the key through a secure out-of-band channel.
 
-## Quick start — storage node (non-ZFS), joins an existing network
-
-```bash
-# 1. copy the shared secret and stakeholder list from the primary node
-rsync -avz -e ssh /tmp/swarm.key /tmp/list.json root@NEW_NODE:/tmp/
-
-# 2. copy this package and run the installer
-rsync -avz -e ssh hashburst-node/ root@NEW_NODE:/tmp/hashburst-node/
-ssh root@NEW_NODE
-cd /tmp/hashburst-node
-sudo ./install.sh \
-  --role storage \
-  --capacity-gb 400 \
-  --swarm-master-ip 85.233.199.35 \
-  --swarm-peer-id 12D3KooWRHr6kYKuHqZ2mhyFujJ1DzcrobyE7vKyvT8pabooun3f \
-  --aggregator-ip 64.31.4.9 \
-  --node-name node-7
-```
-
-The installer:
-1. installs the node binary and Kubo (IPFS) if missing
-2. installs the shared swarm.key (federation)
-3. **detects ZFS** and runs the correct dual-IPFS script
-4. bootstraps the private IPFS swarm to the primary
-5. installs the complete HB-Files code
-6. writes the env (logical capacity cap, storage role)
-7. starts the systemd services
-8. opens port 8091 only toward the aggregator
-
-## Primary node (first node of a network, with ZFS)
+## Quick start — primary full node
 
 ```bash
 sudo ./install.sh --role full --primary --miner
 ```
 
-With `--primary` the installer lets the IPFS script generate a new swarm.key
-(the network's shared secret — then copied to every other node). With ZFS
-present, storage uses `datapool` and the node is `primary` (keeps the sovereign
-accounting for the whole network).
+The installer detects ZFS vs filesystem storage, installs the full node and
+HB-Files stack, prepares the private IPFS repository, installs TEP, generates or
+preserves TEP key material, starts TEP long enough to obtain the X25519 public
+key, writes that key into the HashBurst node environment, starts the blockchain
+node, obtains its stable blockchain Peer ID, binds TEP to that identity and
+verifies `AES-256-GCM` with `app_ready=true`.
 
-## Options
+## Quick start — full edge/NAT workstation
 
-| Option | Meaning |
-|---|---|
-| `--role storage\|full\|blockchain` | what to install (default: storage) |
-| `--capacity-gb N` | logical storage cap (non-ZFS nodes) |
-| `--swarm-master-ip IP` | primary node IP (for federation) |
-| `--swarm-peer-id ID` | primary private IPFS peer id |
-| `--aggregator-ip IP` | aggregator IP (firewall rule for 8091) |
-| `--node-name NAME` | node id (default: hb-<hostname>) |
-| `--primary` | this is the first node; generate the swarm.key |
-| `--miner` | enable mining on this node |
-
-## After installing a storage node (2 manual steps)
-
-1. On the aggregator, add the node to `/etc/hashburst/storage-nodes.json`:
-   ```json
-   {"name":"node-7","url":"http://NEW_NODE_IP:8091","role":"edge","capacity_class":"best-effort"}
-   ```
-   The aggregator includes it within 30s, no restart.
-
-2. Federation test: on the primary, add a file to the private IPFS, then on the
-   new node `IPFS_PATH=<private-repo> ipfs cat <CID>`. If it returns the file,
-   the private network is shared.
-
-## The aggregator (reference node)
-
-The `aggregator/` folder holds the network aggregator that sums every storage
-node's capacity and computes the sovereign accounting over the network total.
-Install it on the node that serves the public page:
+The edge machine must already have `/etc/hashburst/swarm.key` or receive the
+same network key as `/tmp/swarm.key` before installation.
 
 ```bash
-cp aggregator/hb_aggregator.py aggregator/hb_aggregator_server.py /opt/hashburst-files/
-cp aggregator/storage-nodes.example.json /etc/hashburst/storage-nodes.json
-cp aggregator/hashburst-aggregator.service /etc/systemd/system/
-systemctl daemon-reload && systemctl enable --now hashburst-aggregator
+sudo ./install.sh \
+  --role full \
+  --storage-role edge \
+  --node-name node-7 \
+  --swarm-master-ip 85.233.199.35 \
+  --swarm-peer-id 12D3KooWRHr6kYKuHqZ2mhyFujJ1DzcrobyE7vKyvT8pabooun3f \
+  --aggregator-ip 64.31.4.9 \
+  --miner
 ```
 
-The storage aggregator listens on `127.0.0.1:8094` by default. Port `8093` is reserved for the mining aggregator and must not be used by storage. The supplied systemd unit also sets `HB_AGGREGATOR_TIMEOUT=3`.
+For an edge node, HB-Files remains local and port 8091 is not opened toward the
+Internet. Remote storage summary access is expected to use HB-TEP. The TEP
+rendezvous bootstrap contains only public identity material (IP, peer ID,
+X25519 public key); no private federation secret is embedded in the package.
 
-For static discovery, configure both `role` and `capacity_class` explicitly. In particular, every edge should use `"role":"edge"` and `"capacity_class":"best-effort"`. If an offline node has neither a valid configured class nor role, it is reported as `unknown` rather than assuming `committable`.
+## What `install.sh` configures
 
-## Durable replication controller (v2.1.3)
+1. validates role, storage backend and private-network prerequisites
+2. preserves existing HashBurst admin/panel secrets
+3. installs the HashBurst node binary
+4. installs private/public Kubo according to the selected role and existing services
+5. joins the private IPFS swarm without creating a new key on a non-primary node
+6. installs HB-Files and keeps Kubo private RPC on `127.0.0.1:5011`
+7. installs replication controller/agent code without automatically enabling them
+8. installs the canonical TEP package and hardened systemd unit
+9. runs `bin/hb-tep-onboard`
+10. requires Python `cryptography` with X25519/AES-GCM
+11. preserves existing TEP keys and refuses silent stable-peer-ID replacement
+12. for full/blockchain nodes, completes TEP enrollment using the local blockchain Peer ID
+13. verifies the relevant services before reporting installation complete
 
-The package now contains an opt-in native replication controller. Its default policy targets `N=3` confirmed copies, with at least `M=2` confirmed copies on `committable` nodes. Edge replicas are best-effort and never increase the sellable committable guarantee.
+## TEP security defaults
 
-The controller and replica-agent services are installed but are **not enabled automatically**. The controller defaults to `HB_REPL_MODE=observe`, the HB-Files registration hook defaults to `HB_REPL_HOOK_ENABLED=0`, and automatic UNPIN defaults to disabled. This allows observation and additive pin rollout before any destructive lifecycle operation is introduced.
+- UDP transport port: `47777`
+- status/local application IPC: `127.0.0.1:47778`
+- cryptography: X25519 + AES-256-GCM
+- APP protocol: `HB-TEP-APP/1`
+- exposed application service: `storage.summary`
+- relay capability: disabled by default
+- trusted rendezvous: explicitly configured by stable peer ID
+- application requests require pre-registered peer ID + X25519 public key
+- replay protection and authenticated routing are fail-closed
+- the local IPC does not accept arbitrary URLs, ports, methods or headers
 
-Replica agents poll outbound and talk only to their local Kubo RPC at `127.0.0.1:5011`; the controller never opens remote Kubo access. For remote agents, publish the controller only through a protected TLS/private transport rather than exposing its plain HTTP bearer-token endpoint directly to the Internet.
+The nginx/public explorer layer must never proxy `/api/tep/app/*`; application
+IPC is localhost-only.
 
-See `docs/REPLICATION_CONTROLLER.md` for rollout and known limits.
+## Storage accounting and aggregator
 
-## Security notes
+Port contracts:
 
-- Port 8091 exposes admin endpoints (with the admin secret): the installer opens
-  it **only** toward the aggregator IP, never to the whole internet.
-- IPFS API ports (5001, 5011) stay bound to localhost.
-- The swarm.key is a shared secret: identical md5 across all nodes, or they
-  form separate private networks and do not federate.
-- No identities are shipped in this package: the node generates its own P2P key
-  and wallet on first start. Copying identities between nodes is never done.
+- `8091`: node storage summary / HB-Files
+- `8093`: mining aggregator — reserved, not used by storage
+- `8094`: storage network aggregator
+- `8095`: replication controller, localhost-only by default
+- `5011`: private Kubo RPC, localhost-only
 
-## Notes
+The storage aggregator supports `transport: direct` and `transport: tep`.
+For TEP nodes, `tep_node_id` is the authenticated routing identity and
+`summary_node_id` is the expected HB-Files summary identity. They are separate
+contracts so an existing storage installation can keep its established summary
+node ID without weakening TEP routing authentication.
 
-- The capacity cap on non-ZFS nodes is **logical**, not physical: HB-Files uses
-  it for accounting, but the disk can fill beyond it. Monitor `df -h`.
-- On ZFS nodes the cap is the ZFS quota on `datapool/hashburst`.
-- A node with a pre-existing public IPFS (ports 5001/4001 already used) needs a
-  dedicated procedure — the dual-IPFS scripts assume those ports are free.
+Primary/secondary nodes are committable. Edge replicas are best-effort and never
+increase sellable capacity.
 
-## GitHub publication
+## Durable replication
 
-v2.1.3 includes CI under `.github/workflows/ci.yml`, replication regression coverage, and the MIT `LICENSE`. The published v2.1.2 release remains the rollback baseline until the v2.1.3 rollout is accepted.
+The v2.1.4 replication lifecycle remains part of v2.1.5:
+
+- default desired copies N=3
+- minimum committable copies M=2
+- edge grace 6 hours
+- controller desired-state + pull-based agents
+- SQLite state and idempotent leases
+- failure-domain-aware placement
+- generation fencing
+- final-release grace
+- safe trim floors
+- automatic UNPIN disabled by default
+
+The installer packages replication services but does not automatically enable the
+controller or agents. Destructive UNPIN still requires both controller and agent
+gates plus job authorization.
+
+## Important identity files
+
+Do not delete these during an update:
+
+- `/etc/hashburst/swarm.key` — private IPFS federation secret
+- `/var/lib/hashburst/node_p2p.key` — stable blockchain/libp2p identity
+- `/var/lib/hashburst/tep/node_x25519.key` — stable TEP X25519 identity
+- `/etc/hashburst/hashburst-tep.env` — TEP runtime configuration
+
+v2.1.5 treats replacement of an existing `HB_TEP_PEER_ID` as an error rather
+than silently changing identity.
+
+## Verification
+
+After installing a full node:
+
+```bash
+curl -fsS http://127.0.0.1:8009/api/health | python3 -m json.tool
+curl -fsS http://127.0.0.1:47778/ | python3 -m json.tool
+systemctl --no-pager --full status hashburst-node hashburst-tep.service
+```
+
+For TEP, the release gate expects `crypto_mode: AES-256-GCM` and
+`app_ready: true` on full/blockchain nodes.
+
+## CI / release safety
+
+GitHub Actions runs:
+
+- Python and shell syntax checks
+- v2.1.2 release regressions
+- v2.1.3 replication compatibility
+- v2.1.4 lifecycle safety and release contract
+- HB-TEP-APP protocol/security/client/relay/NAT/daemon tests
+- aggregator TEP and flat-layout tests
+- v2.1.5 installer/onboarding tests
+- v2.1.5 release contract
+
+A release is not considered production-ready solely because CI passes. The final
+release candidate must also be validated on a controlled node before the tag is
+published.
+
+## License
+
+MIT — see `LICENSE`.
