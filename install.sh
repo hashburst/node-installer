@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.1.4"
+VERSION="2.1.5"
 ROLE="storage"                    # storage | full | blockchain | edge
 STORAGE_ROLE=""                  # primary | secondary | edge
 STORAGE_BACKEND="auto"           # auto | zfs | filesystem
@@ -60,8 +60,9 @@ Examples:
     --capacity-gb 400 --swarm-master-ip 85.233.199.35 \
     --swarm-peer-id PEER --aggregator-ip 64.31.4.9
 
-  sudo ./install.sh --role edge --storage-role edge \
-    --capacity-gb 100 --swarm-master-ip 85.233.199.35 --swarm-peer-id PEER
+  sudo ./install.sh --role full --storage-role edge \
+    --capacity-gb 100 --swarm-master-ip 85.233.199.35 \
+    --swarm-peer-id PEER --aggregator-ip 64.31.4.9 --node-name node-7 --miner
 USAGE
 }
 
@@ -110,6 +111,7 @@ need_file() { [ -f "$1" ] || { echo "ERROR: required package file missing: $1" >
 port_listening() { ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$1$"; }
 
 need_file "$SCRIPT_DIR/bin/hashburst-node"
+need_file "$SCRIPT_DIR/bin/hb-tep-onboard"
 need_file "$SCRIPT_DIR/replication/hb_replication_controller.py"
 need_file "$SCRIPT_DIR/replication/hb_replication_controller_v214.py"
 need_file "$SCRIPT_DIR/replication/hb_replication_v214_db.py"
@@ -195,6 +197,7 @@ cat <<INFO
  storage path:     ${STORAGE_PATH}
  public IPFS mode: ${PUBLIC_IPFS_MODE}
  HB-Files bind:    ${FILES_BIND}
+ TEP:              automatic, fail-closed AES-256-GCM
 ============================================================
 INFO
 [ "$DRY_RUN" = yes ] && exit 0
@@ -218,10 +221,8 @@ fi
 ADMIN_SECRET="${OLD_ADMIN:-$(openssl rand -hex 32)}"
 PANEL_SECRET="${OLD_PANEL:-$(openssl rand -hex 32)}"
 
-# v2.1.4 ships the replication lifecycle components on every role but never
-# enables controller/agent automatically. Observe mode and both UNPIN gates are
-# fail-closed defaults. hb_ipfs.py is also installed adjacent to the agent so
-# direct systemd execution does not depend on PYTHONPATH.
+# Replication remains additive and fail-closed. Controller/agent are packaged but
+# never automatically enabled; UNPIN remains independently double-gated.
 install -d -m 0755 /opt/hashburst/replication /var/lib/hashburst/replication
 cp -a "$SCRIPT_DIR/replication/." /opt/hashburst/replication/
 install -m 0644 "$SCRIPT_DIR/hbfiles/hb_ipfs.py" /opt/hashburst/replication/hb_ipfs.py
@@ -232,8 +233,8 @@ if [ ! -f /etc/hashburst/replica-agent.env ]; then
   install -m 0600 "$SCRIPT_DIR/config/replica-agent.env.example" /etc/hashburst/replica-agent.env
 fi
 
-# HB-TEP is packaged on every role but never enabled automatically.
-# Existing production configuration is preserved.
+# v2.1.5 installs TEP on every role. Existing key/config material is preserved;
+# bin/hb-tep-onboard performs idempotent activation after the unit is installed.
 install -d -m 0755 /opt/hashburst-tep/tep /var/lib/hashburst/tep
 cp -a "$SCRIPT_DIR/tep/." /opt/hashburst-tep/tep/
 if [ ! -f /etc/hashburst/hashburst-tep.env ]; then
@@ -299,6 +300,11 @@ chmod 600 /etc/hashburst/install-state.json
 cp "$SCRIPT_DIR"/systemd/*.service /etc/systemd/system/
 systemctl daemon-reload
 
+# TEP activation is part of the v2.1.5 installer contract. For full/blockchain
+# roles the helper starts the blockchain only after TEP_PUBKEY has been written,
+# then binds TEP to the stable blockchain Peer ID and verifies app_ready.
+bash "$SCRIPT_DIR/bin/hb-tep-onboard" "$NODE_NAME" "$ROLE" "$STORAGE_ROLE"
+
 if [ "$ROLE" = full ] || [ "$ROLE" = blockchain ]; then
   systemctl enable --now hashburst-node
   systemctl is-active --quiet hashburst-node || { journalctl -u hashburst-node -n 40 --no-pager; exit 1; }
@@ -313,7 +319,11 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; the
   if [ "$PUBLIC_IPFS_MODE" = managed ]; then ufw allow 4001/tcp comment 'IPFS public swarm'; fi
   if [ -n "$AGGREGATOR_IP" ]; then
     ufw delete allow 8091/tcp >/dev/null 2>&1 || true
-    ufw allow from "$AGGREGATOR_IP" to any port 8091 proto tcp comment 'HashBurst storage summary'
+    if [ "$STORAGE_ROLE" = edge ]; then
+      echo "Edge storage: :8091 remains unexposed; use HB-TEP for remote summary access."
+    else
+      ufw allow from "$AGGREGATOR_IP" to any port 8091 proto tcp comment 'HashBurst storage summary'
+    fi
   elif [ "$STORAGE_ROLE" != edge ]; then
     echo "WARNING: UFW active but no --aggregator-ip supplied; :8091 was not opened."
   fi
