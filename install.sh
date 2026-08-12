@@ -118,6 +118,14 @@ need_file "$SCRIPT_DIR/replication/hb_replica_agent_v214.py"
 need_file "$SCRIPT_DIR/hbfiles/hb_ipfs.py"
 need_file "$SCRIPT_DIR/config/replication-controller.env.example"
 need_file "$SCRIPT_DIR/config/replica-agent.env.example"
+need_file "$SCRIPT_DIR/tep/hb_tep.py"
+need_file "$SCRIPT_DIR/tep/hb_tep_app.py"
+need_file "$SCRIPT_DIR/tep/hb_tep_client.py"
+need_file "$SCRIPT_DIR/tep/hb_tep_relay.py"
+need_file "$SCRIPT_DIR/tep/hb_tep_services.py"
+need_file "$SCRIPT_DIR/tep/hb_tep_wire.py"
+need_file "$SCRIPT_DIR/config/hashburst-tep.env.example"
+need_file "$SCRIPT_DIR/systemd/hashburst-tep.service"
 if [ "$ROLE" != blockchain ]; then
   need_file "$SCRIPT_DIR/hbfiles/hb_files.py"
   need_file "$SCRIPT_DIR/ipfs-scripts/01-install-ipfs-dual-noZFS.sh"
@@ -222,6 +230,14 @@ if [ ! -f /etc/hashburst/replication-controller.env ]; then
 fi
 if [ ! -f /etc/hashburst/replica-agent.env ]; then
   install -m 0600 "$SCRIPT_DIR/config/replica-agent.env.example" /etc/hashburst/replica-agent.env
+fi
+
+# HB-TEP is packaged on every role but never enabled automatically.
+# Existing production configuration is preserved.
+install -d -m 0755 /opt/hashburst-tep/tep /var/lib/hashburst/tep
+cp -a "$SCRIPT_DIR/tep/." /opt/hashburst-tep/tep/
+if [ ! -f /etc/hashburst/hashburst-tep.env ]; then
+  install -m 0600 "$SCRIPT_DIR/config/hashburst-tep.env.example" /etc/hashburst/hashburst-tep.env
 fi
 
 if [ "$ROLE" != blockchain ]; then

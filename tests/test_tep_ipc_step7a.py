@@ -9,7 +9,7 @@ import urllib.request
 from tep.hb_tep_services import StorageSummaryConfig, build_default_registry
 
 ROOT = Path(__file__).resolve().parents[1]
-MOD_PATH = ROOT / 'patched' / 'hb_tep.py'
+MOD_PATH = ROOT / 'tep' / 'hb_tep.py'
 spec = importlib.util.spec_from_file_location('hb_tep_step7a', MOD_PATH)
 hb = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = hb

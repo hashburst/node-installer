@@ -22,6 +22,9 @@ REQUIRED = [
     '.github/workflows/ci.yml', 'baseline/hb_tep-production-current.py',
     'tests/test_tep_ipc_step7a.py', 'docs/TEP_LOCAL_IPC.md',
     'tests/test_tep_aggregator_ipc_step7b.py', 'docs/TEP_AGGREGATOR_WIRING.md',
+    'tep/hb_tep.py', 'systemd/hashburst-tep.service',
+    'config/hashburst-tep.env.example', 'tests/test_tep_packaging_step7c.py',
+    'docs/TEP_PACKAGING_STEP7C.md',
 ]
 
 def sha256(path: Path) -> str:
@@ -56,6 +59,7 @@ for name, value in EXPECTED_TYPES.items():
 must(len(set(EXPECTED_TYPES.values())) == len(EXPECTED_TYPES), 'packet type collision')
 
 patched = (ROOT/'patched/hb_tep.py').read_text(encoding='utf-8')
+canonical = (ROOT/'tep/hb_tep.py').read_text(encoding='utf-8')
 for forbidden in ['subprocess', 'os.system', 'shell=True', '127.0.0.1:5011']:
     must(forbidden not in patched, f'forbidden construct in patched daemon: {forbidden}')
 
@@ -68,6 +72,32 @@ for required_text in [
     "IPC_TIMEOUT_SEC = 3.0", "IPC_DIRECT_TIMEOUT_SEC = 1.2",
 ]:
     must(required_text in patched, f'missing daemon contract: {required_text}')
+
+for required_text in [
+    "ThreadingHTTPServer(('127.0.0.1', self.status_port)",
+    "HB_TEP_NODE_ID", "HB_TEP_PEER_ID", "HB_TEP_RELAY_CLIENTS",
+    "HB_TEP_TRUSTED_RENDEZVOUS", "HB_TEP_RENDEZVOUS_PEERS",
+]:
+    must(required_text in canonical, f'missing canonical daemon contract: {required_text}')
+
+systemd = (ROOT/'systemd/hashburst-tep.service').read_text(encoding='utf-8')
+for required_text in [
+    'ExecStart=/usr/bin/python3 -m tep.hb_tep',
+    'EnvironmentFile=-/etc/hashburst/hashburst-tep.env',
+    'NoNewPrivileges=true', 'ProtectSystem=strict',
+]:
+    must(required_text in systemd, f'missing TEP systemd contract: {required_text}')
+for forbidden in ['8093', '8094', '8095', '5011']:
+    must(forbidden not in systemd, f'forbidden port in TEP systemd service: {forbidden}')
+
+installer = (ROOT/'install.sh').read_text(encoding='utf-8')
+must('/opt/hashburst-tep/tep' in installer, 'installer does not package canonical TEP')
+for forbidden in [
+    'systemctl enable --now hashburst-tep',
+    'systemctl start hashburst-tep',
+    'systemctl restart hashburst-tep',
+]:
+    must(forbidden not in installer, f'installer must not activate TEP: {forbidden}')
 
 services = (ROOT/'tep/hb_tep_services.py').read_text(encoding='utf-8')
 must('storage.summary' in services, 'storage.summary missing')
@@ -96,6 +126,7 @@ print(json.dumps({
     'ok': True,
     'baseline_sha256': BASELINE_SHA,
     'patched_sha256': sha256(ROOT/'patched/hb_tep.py'),
+    'canonical_sha256': sha256(ROOT/'tep/hb_tep.py'),
     'packet_types': {k: pt[k] for k in EXPECTED_TYPES},
     'required_files': len(REQUIRED),
 }, indent=2, sort_keys=True))

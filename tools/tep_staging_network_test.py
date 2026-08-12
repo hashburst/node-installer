@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PATCHED = ROOT / "patched" / "hb_tep.py"
+PATCHED = ROOT / "tep" / "hb_tep.py"
 SUMMARY_PORT = 8091
 NODES = {
     "a": {"node_id": "client-a", "peer_id": "peer-a", "host": "127.0.0.11", "port": 48771, "status": 48871},

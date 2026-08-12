@@ -1,0 +1,24 @@
+[Unit]
+Description=HashBurst Transport Encrypted Protocol
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/hashburst-tep
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/hashburst/hashburst-tep.env
+ExecStart=/usr/bin/python3 -m tep.hb_tep
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hashburst /var/log/hashburst
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
