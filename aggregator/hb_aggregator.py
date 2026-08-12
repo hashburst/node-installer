@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HashBurst storage network aggregator v2.1.2.
+"""HashBurst storage network aggregator with additive TEP transport support.
 
 Capacity classes:
   primary/secondary -> committable (eligible for sellable capacity)
@@ -11,58 +11,183 @@ Safety invariants:
   * node summary with available=false or stale timestamp is not online/accountable
   * sellable = min(commitment headroom, physical free headroom)
   * edge capacity never increases sellable capacity
+  * transport changes reachability only; it never changes capacity classification
 """
 from __future__ import annotations
-import json, os, time, urllib.request
+
+import json
+import os
+import time
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+try:
+    from . import hb_tep_adapter
+except ImportError:
+    # Production installs the aggregator as flat sibling modules under
+    # /opt/hashburst-files, while repository tests may load this file without
+    # package context. Prefer the flat sibling import when available, then fall
+    # back to the repository namespace package used by legacy release tests.
+    try:
+        import hb_tep_adapter
+    except ImportError:
+        import importlib
+        import sys
+
+        _repo_root = str(Path(__file__).resolve().parent.parent)
+        _repo_root_added = _repo_root not in sys.path
+
+        if _repo_root_added:
+            sys.path.insert(0, _repo_root)
+
+        try:
+            hb_tep_adapter = importlib.import_module("aggregator.hb_tep_adapter")
+        finally:
+            if _repo_root_added:
+                try:
+                    sys.path.remove(_repo_root)
+                except ValueError:
+                    pass
 
 NODES_FILE = os.environ.get("HB_STORAGE_NODES", "/etc/hashburst/storage-nodes.json")
 TIMEOUT = float(os.environ.get("HB_AGGREGATOR_TIMEOUT", "3"))
 MAX_STALE_SEC = int(os.environ.get("HB_AGGREGATOR_MAX_STALE_SEC", "120"))
 MAX_RESPONSE = int(os.environ.get("HB_AGGREGATOR_MAX_RESPONSE", "65536"))
+_VALID_TRANSPORTS = frozenset({"direct", "tep"})
+
+
+def _transport(node: dict) -> str:
+    raw = node.get("transport")
+    if raw is None or str(raw).strip() == "":
+        return "direct"
+    return str(raw).strip().lower()
+
+
+def _node_config_valid(node: dict) -> bool:
+    transport = _transport(node)
+    if transport == "direct":
+        return bool(str(node.get("url") or "").strip())
+    if transport == "tep":
+        return bool(str(node.get("tep_peer_id") or "").strip())
+    return False
 
 
 def discover_nodes() -> list[dict]:
     try:
         data = json.loads(Path(NODES_FILE).read_text())
         nodes = data.get("nodes", [])
-        return [n for n in nodes if isinstance(n, dict) and n.get("url") and n.get("enabled", True) is not False]
+        return [
+            n for n in nodes
+            if isinstance(n, dict)
+            and n.get("enabled", True) is not False
+            and _node_config_valid(n)
+        ]
     except Exception:
         return []
 
 
-def _fetch_summary(node: dict) -> dict:
-    url = node["url"].rstrip("/") + "/api/public/storage-summary"
-    out = {"name": node.get("name", "?"), "url": node["url"], "online": False,
-           "configured_class": node.get("capacity_class"),
-           "configured_role": node.get("role")}
+def _base_result(node: dict) -> dict:
+    transport = _transport(node)
+    return {
+        "name": node.get("name", "?"),
+        "url": node.get("url"),
+        "online": False,
+        "configured_class": node.get("capacity_class"),
+        "configured_role": node.get("role"),
+        "transport": transport,
+        "tep_peer_id": node.get("tep_peer_id") if transport == "tep" else None,
+    }
+
+
+def _validate_summary(summary: dict) -> dict:
+    if not isinstance(summary, dict):
+        raise ValueError("summary must be an object")
+    if summary.get("available") is False:
+        raise ValueError("node summary unavailable")
+    node_id = str(summary.get("node_id") or "").strip()
+    role = str(summary.get("role") or "").strip()
+    if not node_id or role not in {"primary", "secondary", "edge"}:
+        raise ValueError("invalid node_id/role")
+    total = float(summary.get("capacity_total_gb"))
+    used = float(summary.get("used_gb") or 0)
+    if total < 0 or used < 0 or used > total * 1.05:
+        raise ValueError("invalid capacity values")
+    ts = int(summary.get("timestamp") or 0)
+    if ts and abs(int(time.time()) - ts) > MAX_STALE_SEC:
+        raise ValueError("stale summary")
+    return summary
+
+
+def _fetch_summary_direct(node: dict) -> dict:
+    out = _base_result(node)
     try:
-        req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "HashBurst-Aggregator/2.1"})
+        url = str(node["url"]).rstrip("/") + "/api/public/storage-summary"
+        req = urllib.request.Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "HashBurst-Aggregator/2.1"},
+        )
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             raw = r.read(MAX_RESPONSE + 1)
             if len(raw) > MAX_RESPONSE:
                 raise ValueError("summary too large")
             summary = json.loads(raw.decode("utf-8", "strict"))
-        if summary.get("available") is False:
-            raise ValueError("node summary unavailable")
-        node_id = str(summary.get("node_id") or "").strip()
-        role = str(summary.get("role") or "").strip()
-        if not node_id or role not in {"primary", "secondary", "edge"}:
-            raise ValueError("invalid node_id/role")
-        total = float(summary.get("capacity_total_gb"))
-        used = float(summary.get("used_gb") or 0)
-        if total < 0 or used < 0 or used > total * 1.05:
-            raise ValueError("invalid capacity values")
-        ts = int(summary.get("timestamp") or 0)
-        if ts and abs(int(time.time()) - ts) > MAX_STALE_SEC:
-            raise ValueError("stale summary")
+        _validate_summary(summary)
         out.update(summary)
         out["online"] = True
+        out["transport_path"] = "direct"
     except Exception as e:
         out["error"] = str(e)[:120]
     return out
 
+
+def _fetch_summary_tep(node: dict) -> dict:
+    out = _base_result(node)
+    try:
+        summary = hb_tep_adapter.fetch_summary(node, TIMEOUT)
+        _validate_summary(summary)
+        configured_role = str(node.get("role") or "").strip()
+        summary_role = str(summary.get("role") or "").strip()
+        if configured_role and summary_role != configured_role:
+            raise ValueError("TEP summary role does not match configured role")
+
+        # TEP routing identity and storage-summary identity are distinct contracts.
+        # tep_node_id is sent to the local TEP daemon for authenticated routing.
+        # summary_node_id, when present, is the expected storage summary node_id.
+        # Falling back preserves compatibility with existing configs where both
+        # identities are intentionally the same.
+        configured_summary_id = str(
+            node.get("summary_node_id")
+            or node.get("tep_node_id")
+            or node.get("name")
+            or ""
+        ).strip()
+        summary_node_id = str(summary.get("node_id") or "").strip()
+        if configured_summary_id and summary_node_id != configured_summary_id:
+            raise ValueError("TEP summary node_id does not match configured summary identity")
+
+        out.update(summary)
+        out["online"] = True
+        out["transport"] = "tep"
+        out["transport_path"] = str(summary.get("_tep_transport_path") or "direct")
+        if summary.get("_tep_relay_peer_id"):
+            out["relay_peer_id"] = summary.get("_tep_relay_peer_id")
+        if summary.get("_tep_rtt_ms") is not None:
+            out["rtt_ms"] = summary.get("_tep_rtt_ms")
+    except Exception as e:
+        out["error"] = str(e)[:120]
+    return out
+
+
+def _fetch_summary(node: dict) -> dict:
+    transport = _transport(node)
+    if transport == "direct":
+        return _fetch_summary_direct(node)
+    if transport == "tep":
+        return _fetch_summary_tep(node)
+    out = _base_result(node)
+    out["error"] = f"unsupported transport: {transport}"[:120]
+    return out
 
 
 def _capacity_class(result: dict) -> str:
@@ -91,6 +216,7 @@ def _capacity_class(result: dict) -> str:
         return "best-effort"
     return "unknown"
 
+
 def aggregate() -> dict:
     nodes = discover_nodes()
     if not nodes:
@@ -99,7 +225,6 @@ def aggregate() -> dict:
     with ThreadPoolExecutor(max_workers=min(max(len(nodes), 1), 16)) as pool:
         results = list(pool.map(_fetch_summary, nodes))
 
-    # Deduplicate by stable node_id; duplicates are visible but only first counts.
     seen = set()
     counted = []
     for r in results:
@@ -111,7 +236,8 @@ def aggregate() -> dict:
             r["online"] = False
             r["error"] = "duplicate node_id"
             continue
-        seen.add(nid); counted.append(r)
+        seen.add(nid)
+        counted.append(r)
 
     primary_nodes = [r for r in counted if r.get("role") == "primary"]
     primary = primary_nodes[0] if len(primary_nodes) == 1 else None
@@ -134,7 +260,10 @@ def aggregate() -> dict:
         oversubscribed = commitment_headroom < 0 or physical_headroom < 0
         status = "ok"
     else:
-        reserved = sold = 0.0; stakeholders = 0; free_sellable = None; oversubscribed = None
+        reserved = sold = 0.0
+        stakeholders = 0
+        free_sellable = None
+        oversubscribed = None
         status = "primary-unavailable" if not primary_nodes else "multiple-primary"
 
     online_count = sum(1 for r in results if r.get("online"))
@@ -161,12 +290,23 @@ def aggregate() -> dict:
             "oversubscribed": oversubscribed,
         },
         "nodes": [{
-            "name": r.get("name"), "node_id": r.get("node_id"), "role": r.get("role", r.get("configured_role") or "?"),
+            "name": r.get("name"),
+            "node_id": r.get("node_id"),
+            "role": r.get("role", r.get("configured_role") or "?"),
             "capacity_class": _capacity_class(r),
-            "online": r.get("online", False), "capacity_gb": r.get("capacity_total_gb"),
-            "used_gb": r.get("used_gb"), "source": r.get("capacity_source"), "error": r.get("error")
+            "online": r.get("online", False),
+            "capacity_gb": r.get("capacity_total_gb"),
+            "used_gb": r.get("used_gb"),
+            "source": r.get("capacity_source"),
+            "error": r.get("error"),
+            "transport": r.get("transport"),
+            "transport_path": r.get("transport_path"),
+            "tep_peer_id": r.get("tep_peer_id"),
+            "relay_peer_id": r.get("relay_peer_id"),
+            "rtt_ms": r.get("rtt_ms"),
         } for r in results],
     }
+
 
 if __name__ == "__main__":
     print(json.dumps(aggregate(), indent=2))

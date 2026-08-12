@@ -9,6 +9,7 @@
     },
     {
       "name": "secondary-storage",
+      "transport": "direct",
       "url": "http://77.90.188.155:8091",
       "capacity_class": "committable",
       "role": "secondary",
@@ -16,7 +17,9 @@
     },
     {
       "name": "edge-example",
-      "url": "http://127.0.0.1:18091",
+      "transport": "tep",
+      "tep_peer_id": "12D3KooWExampleStablePeerId",
+      "tep_node_id": "edge-example",
       "capacity_class": "best-effort",
       "enabled": false,
       "role": "edge",

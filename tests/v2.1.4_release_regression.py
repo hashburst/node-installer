@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Release contract checks for HashBurst Node Installer v2.1.4."""
+"""Lifecycle compatibility checks introduced by HashBurst Node Installer v2.1.4."""
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 checks = []
@@ -22,7 +23,8 @@ ctl_unit = (ROOT / "systemd/hashburst-replication-controller.service").read_text
 agent_unit = (ROOT / "systemd/hashburst-replica-agent.service").read_text()
 ci = (ROOT / ".github/workflows/ci.yml").read_text()
 
-ok("installer_version_2_1_4", 'VERSION="2.1.4"' in install)
+m = re.search(r'^VERSION="(\d+)\.(\d+)\.(\d+)"', install, re.M)
+ok("installer_version_not_older_than_2_1_4", bool(m) and tuple(map(int, m.groups())) >= (2, 1, 4))
 ok("controller_v214_packaged", (ROOT / "replication/hb_replication_controller_v214.py").is_file())
 ok("db_v214_packaged", (ROOT / "replication/hb_replication_v214_db.py").is_file())
 ok("recovery_v214_packaged", (ROOT / "replication/hb_replication_v214_recovery.py").is_file())
@@ -48,4 +50,4 @@ ok("installer_does_not_enable_agent", 'enable --now hashburst-replica-agent' not
 ok("ci_runs_v214_lifecycle", 'tests.test_replication_v214_controller' in ci)
 ok("mining_port_contract_preserved", '8093' not in controller)
 ok("storage_aggregator_port_contract_preserved", '8094' not in controller)
-print(f"PASS v2.1.4 release regression ({len(checks)} checks)")
+print(f"PASS v2.1.4 lifecycle compatibility regression ({len(checks)} checks)")
