@@ -21,6 +21,7 @@ REQUIRED = [
     'docs/TEP_SECURITY_MODEL.md', 'docs/TEP_ROLLBACK.md',
     '.github/workflows/ci.yml', 'baseline/hb_tep-production-current.py',
     'tests/test_tep_ipc_step7a.py', 'docs/TEP_LOCAL_IPC.md',
+    'tests/test_tep_aggregator_ipc_step7b.py', 'docs/TEP_AGGREGATOR_WIRING.md',
 ]
 
 def sha256(path: Path) -> str:
@@ -78,10 +79,17 @@ must('transport' in agg and 'tep_peer_id' in agg, 'aggregator is not transport-a
 must("role in {'primary', 'secondary'}" in agg or 'role in {"primary", "secondary"}' in agg,
      'committable role invariant missing')
 
+adapter = (ROOT/'aggregator/hb_tep_adapter.py').read_text(encoding='utf-8')
+for required_text in ['IPC_HOST = "127.0.0.1"', 'IPC_DEFAULT_PORT = 47778',
+                      'IPC_PATH = "/app/storage-summary"', 'method="POST"']:
+    must(required_text in adapter, f'missing aggregator IPC contract: {required_text}')
+for forbidden in ['http://0.0.0.0', 'https://', 'subprocess', 'shell=True']:
+    must(forbidden not in adapter, f'forbidden aggregator IPC capability: {forbidden}')
+
 ci = (ROOT/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 for token in ['v2.1.4 lifecycle safety', 'v2.1.4 release contract',
               'HB-TEP-APP unit and daemon integration', 'HB-TEP-APP release contract',
-              'tests.test_tep_ipc_step7a']:
+              'tests.test_tep_ipc_step7a', 'tests.test_tep_aggregator_ipc_step7b']:
     must(token in ci, f'CI gate missing: {token}')
 
 print(json.dumps({

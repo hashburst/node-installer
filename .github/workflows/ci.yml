@@ -52,6 +52,7 @@ jobs:
             tests.test_tep_wire \
             tests.test_tep_packet_scan \
             tests.test_tep_daemon_step5b \
-            tests.test_tep_ipc_step7a
+            tests.test_tep_ipc_step7a \
+            tests.test_tep_aggregator_ipc_step7b
       - name: HB-TEP-APP release contract
         run: python tests/tep_release_regression.py
