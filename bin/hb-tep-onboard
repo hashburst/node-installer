@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# HashBurst v2.1.5 TEP onboarding helper.
+# This helper is intentionally idempotent and preserves existing TEP keys/config.
+# It is designed to be invoked by install.sh after systemd units are installed.
+
+NODE_NAME="${1:-}"
+ROLE="${2:-}"
+STORAGE_ROLE="${3:-}"
+RPC_PORT="${HB_TEP_RPC_PORT:-8009}"
+TEP_ENV="/etc/hashburst/hashburst-tep.env"
+NODE_ENV="/etc/hashburst/env"
+TEP_STATE="/var/lib/hashburst/tep"
+TEP_STATUS="http://127.0.0.1:47778/"
+
+RENDEZVOUS_NODE_ID="${HB_TEP_BOOTSTRAP_NODE_ID:-blockchainapi.one}"
+RENDEZVOUS_IP="${HB_TEP_BOOTSTRAP_IP:-64.31.4.9}"
+RENDEZVOUS_PORT="${HB_TEP_BOOTSTRAP_PORT:-47777}"
+RENDEZVOUS_PEER_ID="${HB_TEP_BOOTSTRAP_PEER_ID:-12D3KooWCiH3B8E84UNsop5epp7vNXfC6oSg2iyB4wjyCm6a84ow}"
+RENDEZVOUS_PUBKEY="${HB_TEP_BOOTSTRAP_PUBKEY:-50506353bd0ac23aec8502e3d5ed6c018975a7c5ea6e22dc363df321d6ca8960}"
+
+[ "$(id -u)" = 0 ] || { echo "ERROR: hb-tep-onboard must run as root" >&2; exit 1; }
+[ -n "$NODE_NAME" ] || { echo "ERROR: node name is required" >&2; exit 2; }
+case "$ROLE" in full|blockchain|storage|edge) ;; *) echo "ERROR: invalid role" >&2; exit 2;; esac
+
+for cmd in python3 curl systemctl; do
+  command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: missing dependency: $cmd" >&2; exit 1; }
+done
+
+python3 - <<'PY'
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: F401
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey  # noqa: F401
+except Exception as exc:
+    raise SystemExit("ERROR: python3 cryptography with AESGCM/X25519 is required: %s" % exc)
+PY
+
+install -d -m 0755 /etc/hashburst /var/log/hashburst
+install -d -m 0700 "$TEP_STATE"
+touch "$TEP_ENV" "$NODE_ENV"
+chmod 0600 "$TEP_ENV" "$NODE_ENV"
+
+set_env() {
+  local file="$1" key="$2" value="$3" mode="${4:-replace}"
+  python3 - "$file" "$key" "$value" "$mode" <<'PY'
+from pathlib import Path
+import sys
+
+path=Path(sys.argv[1]); key=sys.argv[2]; value=sys.argv[3]; mode=sys.argv[4]
+lines=path.read_text().splitlines() if path.exists() else []
+found=False
+out=[]
+for line in lines:
+    if line.startswith(key+'='):
+        found=True
+        current=line.split('=',1)[1]
+        if mode == 'if-empty' and current.strip():
+            out.append(line)
+        else:
+            out.append(f'{key}={value}')
+    else:
+        out.append(line)
+if not found:
+    out.append(f'{key}={value}')
+path.write_text('\n'.join(out)+'\n')
+PY
+}
+
+get_env() {
+  local file="$1" key="$2"
+  python3 - "$file" "$key" <<'PY'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]); key=sys.argv[2]
+if path.exists():
+    for line in path.read_text().splitlines():
+        if line.startswith(key+'='):
+            print(line.split('=',1)[1].strip())
+            break
+PY
+}
+
+# Preserve an existing node identity; otherwise initialize from installer node name.
+set_env "$TEP_ENV" HB_TEP_NODE_ID "$NODE_NAME" if-empty
+set_env "$TEP_ENV" HB_TEP_LISTEN "0.0.0.0" if-empty
+set_env "$TEP_ENV" HB_TEP_RPC_PORT "$RPC_PORT" if-empty
+set_env "$TEP_ENV" HB_TEP_LOG_LEVEL "INFO" if-empty
+set_env "$TEP_ENV" HB_TEP_RELAY_ENABLED "0" if-empty
+
+# All non-rendezvous nodes trust the production rendezvous for one-hop relay delivery.
+if [ "$NODE_NAME" != "$RENDEZVOUS_NODE_ID" ]; then
+  set_env "$TEP_ENV" HB_TEP_TRUSTED_RENDEZVOUS "$RENDEZVOUS_PEER_ID" if-empty
+  set_env "$TEP_ENV" HB_TEP_RENDEZVOUS_PEERS "$RENDEZVOUS_PEER_ID" if-empty
+fi
+
+# Bootstrap is public identity material only (no secret). It lets a fresh/NAT node
+# reach the rendezvous before blockchain DNS has populated its local cache.
+if [ "$NODE_NAME" != "$RENDEZVOUS_NODE_ID" ] && [ ! -s "$TEP_STATE/peers.json" ]; then
+  python3 - "$TEP_STATE/peers.json" "$RENDEZVOUS_NODE_ID" "$RENDEZVOUS_IP" "$RENDEZVOUS_PORT" "$RENDEZVOUS_PEER_ID" "$RENDEZVOUS_PUBKEY" <<'PY'
+import json,sys
+path,node_id,ip,port,peer_id,pubkey=sys.argv[1:]
+with open(path,'w',encoding='utf-8') as f:
+    json.dump({'peers':[{
+        'id':node_id,'ip':ip,'port':int(port),'peer_id':peer_id,'pubkey':pubkey
+    }]},f,indent=2)
+    f.write('\n')
+PY
+  chmod 0600 "$TEP_STATE/peers.json"
+fi
+
+systemctl enable --now hashburst-tep.service
+
+wait_tep() {
+  local require_ready="${1:-no}"
+  for _ in $(seq 1 30); do
+    if curl -fsS --max-time 2 "$TEP_STATUS" >/tmp/hb-tep-onboard-status.json 2>/dev/null; then
+      if python3 - /tmp/hb-tep-onboard-status.json "$require_ready" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1],encoding='utf-8'))
+if d.get('crypto_mode') != 'AES-256-GCM':
+    raise SystemExit(1)
+if not d.get('pubkey') or len(str(d.get('pubkey'))) != 64:
+    raise SystemExit(1)
+if sys.argv[2] == 'yes' and d.get('app_ready') is not True:
+    raise SystemExit(1)
+PY
+      then return 0; fi
+    fi
+    sleep 1
+  done
+  echo "ERROR: TEP status/app readiness timeout" >&2
+  systemctl status hashburst-tep.service --no-pager -l >&2 || true
+  exit 1
+}
+
+# First start creates/preserves X25519 key material. app_ready may still be false
+# until the stable blockchain P2P peer ID is known.
+wait_tep no
+TEP_PUBKEY="$(python3 -c 'import json; print(json.load(open("/tmp/hb-tep-onboard-status.json"))["pubkey"])')"
+set_env "$NODE_ENV" TEP_PUBKEY "$TEP_PUBKEY" replace
+
+if [ "$ROLE" = full ] || [ "$ROLE" = blockchain ]; then
+  # The blockchain process sees TEP_PUBKEY from its EnvironmentFile before it
+  # queues NODE_REGISTRATION. This is critical for authenticated TEP discovery.
+  systemctl enable --now hashburst-node.service
+
+  PEER_ID=""
+  for _ in $(seq 1 30); do
+    PEER_ID="$(curl -fsS --max-time 2 "http://127.0.0.1:${RPC_PORT}/api/health" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("peerID") or d.get("peer_id") or "")' 2>/dev/null || true)"
+    [ -n "$PEER_ID" ] && break
+    sleep 1
+  done
+  [ -n "$PEER_ID" ] || { echo "ERROR: stable HashBurst P2P peer ID unavailable" >&2; exit 1; }
+
+  EXISTING_PEER_ID="$(get_env "$TEP_ENV" HB_TEP_PEER_ID)"
+  if [ -n "$EXISTING_PEER_ID" ] && [ "$EXISTING_PEER_ID" != "$PEER_ID" ]; then
+    echo "ERROR: refusing to replace existing HB_TEP_PEER_ID ($EXISTING_PEER_ID) with $PEER_ID" >&2
+    exit 1
+  fi
+  set_env "$TEP_ENV" HB_TEP_PEER_ID "$PEER_ID" replace
+  systemctl restart hashburst-tep.service
+  wait_tep yes
+else
+  EXISTING_PEER_ID="$(get_env "$TEP_ENV" HB_TEP_PEER_ID)"
+  if [ -z "$EXISTING_PEER_ID" ]; then
+    echo "WARNING: role '$ROLE' has no blockchain P2P identity; TEP is installed but APP remains fail-closed until HB_TEP_PEER_ID is provisioned." >&2
+  else
+    systemctl restart hashburst-tep.service
+    wait_tep yes
+  fi
+fi
+
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+  ufw allow 47777/udp comment 'HashBurst TEP' >/dev/null
+fi
+
+systemctl is-active --quiet hashburst-tep.service
+
+echo "TEP onboarding complete"
+python3 - /tmp/hb-tep-onboard-status.json <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1],encoding='utf-8'))
+print('node_id=' + str(d.get('node_id')))
+print('pubkey=' + str(d.get('pubkey')))
+print('crypto_mode=' + str(d.get('crypto_mode')))
+print('app_ready=' + str(d.get('app_ready')))
+print('relay=' + str(d.get('relay')))
+PY
