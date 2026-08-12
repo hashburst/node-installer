@@ -15,9 +15,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install TEP test dependency
+        run: python -m pip install cryptography
       - name: Python syntax
         run: |
           python -m py_compile aggregator/*.py hbfiles/*.py replication/*.py integrations/explorer/patch_hashburst_explorer.py
+          python -m py_compile tep/*.py patched/hb_tep.py tools/hb_tep_packet_scan.py tools/tep_staging_network_test.py
       - name: Shell syntax
         run: |
           bash -n install.sh
@@ -36,3 +39,18 @@ jobs:
         run: python -W error::ResourceWarning -m unittest -v tests.test_replication_v214 tests.test_replication_v214_policy tests.test_replication_v214_controller tests.test_replication_v214_agent_idempotency
       - name: v2.1.4 release contract
         run: python tests/v2.1.4_release_regression.py
+      - name: HB-TEP-APP unit and daemon integration
+        run: |
+          python -W error::ResourceWarning -m unittest -v \
+            tests.test_tep_app_protocol \
+            tests.test_tep_app_security \
+            tests.test_tep_client \
+            tests.test_tep_aggregator \
+            tests.test_tep_accounting \
+            tests.test_tep_relay \
+            tests.test_tep_nat \
+            tests.test_tep_wire \
+            tests.test_tep_packet_scan \
+            tests.test_tep_daemon_step5b
+      - name: HB-TEP-APP release contract
+        run: python tests/tep_release_regression.py
