@@ -32,8 +32,8 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 PY
 }
 
-# Fresh Ubuntu nodes may not have python3-cryptography/curl. Install only missing
-# runtime packages; deliberately never run apt upgrade/dist-upgrade.
+# Install only missing runtime packages. Never upgrade the host or replace a
+# working Python environment with pip --break-system-packages.
 if ! command -v python3 >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! crypto_ok; then
   command -v apt-get >/dev/null 2>&1 || {
     echo "ERROR: missing Python/curl/cryptography and apt-get is unavailable" >&2
@@ -98,7 +98,7 @@ if [ "$NODE_NAME" != "$RENDEZVOUS_NODE_ID" ]; then
   set_env "$TEP_ENV" HB_TEP_RENDEZVOUS_PEERS "$RENDEZVOUS_PEER_ID" if-empty
 fi
 
-# Public bootstrap identity only. No swarm key/admin/replication secret is stored.
+# Public bootstrap identity only. No swarm/admin/replication secret is stored.
 if [ "$NODE_NAME" != "$RENDEZVOUS_NODE_ID" ] && [ ! -s "$TEP_STATE/peers.json" ]; then
   python3 - "$TEP_STATE/peers.json" "$RENDEZVOUS_NODE_ID" "$RENDEZVOUS_IP" "$RENDEZVOUS_PORT" "$RENDEZVOUS_PEER_ID" "$RENDEZVOUS_PUBKEY" <<'PY'
 import json,sys
@@ -132,8 +132,8 @@ PY
   exit 1
 }
 
-# First TEP start creates or reuses X25519 material. The public key is written
-# before a full/blockchain node starts so first NODE_REGISTRATION can carry it.
+# First start creates/reuses X25519 material. Publish the public key before the
+# blockchain node performs its first registration.
 wait_tep no
 TEP_PUBKEY="$(python3 -c 'import json; print(json.load(open("/tmp/hb-tep-onboard-status.json"))["pubkey"])')"
 set_env "$NODE_ENV" TEP_PUBKEY "$TEP_PUBKEY" replace
@@ -155,6 +155,20 @@ if [ "$ROLE" = full ] || [ "$ROLE" = blockchain ]; then
     exit 1
   fi
   set_env "$TEP_ENV" HB_TEP_PEER_ID "$PEER_ID" replace
+
+  # The canonical infrastructure node is the rendezvous. It uses its own
+  # stable peer ID for loopback IPC failover and learns edge coordinates only
+  # from authenticated traffic. Other nodes trust this rendezvous but do not
+  # become relays by default.
+  if [ "$NODE_NAME" = "$RENDEZVOUS_NODE_ID" ]; then
+    set_env "$TEP_ENV" HB_TEP_RELAY_ENABLED "1" replace
+    set_env "$TEP_ENV" HB_TEP_RENDEZVOUS_PEERS "$PEER_ID" replace
+  else
+    set_env "$TEP_ENV" HB_TEP_RELAY_ENABLED "0" if-empty
+    set_env "$TEP_ENV" HB_TEP_TRUSTED_RENDEZVOUS "$RENDEZVOUS_PEER_ID" if-empty
+    set_env "$TEP_ENV" HB_TEP_RENDEZVOUS_PEERS "$RENDEZVOUS_PEER_ID" if-empty
+  fi
+
   systemctl restart hashburst-tep.service
   wait_tep yes
 else

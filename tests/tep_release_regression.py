@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import ast, hashlib, json, re, sys
+import ast, hashlib, json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,15 +15,16 @@ EXPECTED_TYPES = {
 }
 REQUIRED = [
     'tep/hb_tep_app.py', 'tep/hb_tep_client.py', 'tep/hb_tep_services.py',
-    'tep/hb_tep_relay.py', 'tep/hb_tep_wire.py', 'patched/hb_tep.py',
-    'tools/hb_tep_packet_scan.py', 'tools/tep_staging_network_test.py',
-    'docs/TEP_APP_PROTOCOL.md', 'docs/TEP_NAT_DESIGN.md',
-    'docs/TEP_SECURITY_MODEL.md', 'docs/TEP_ROLLBACK.md',
-    '.github/workflows/ci.yml', 'baseline/hb_tep-production-current.py',
-    'tests/test_tep_ipc_step7a.py', 'docs/TEP_LOCAL_IPC.md',
-    'tests/test_tep_aggregator_ipc_step7b.py', 'docs/TEP_AGGREGATOR_WIRING.md',
-    'tep/hb_tep.py', 'systemd/hashburst-tep.service',
-    'config/hashburst-tep.env.example', 'tests/test_tep_packaging_step7c.py',
+    'tep/hb_tep_relay.py', 'tep/hb_tep_wire.py', 'tep/hb_tep_runtime.py',
+    'patched/hb_tep.py', 'tools/hb_tep_packet_scan.py',
+    'tools/tep_staging_network_test.py', 'docs/TEP_APP_PROTOCOL.md',
+    'docs/TEP_NAT_DESIGN.md', 'docs/TEP_SECURITY_MODEL.md',
+    'docs/TEP_ROLLBACK.md', '.github/workflows/ci.yml',
+    'baseline/hb_tep-production-current.py', 'tests/test_tep_ipc_step7a.py',
+    'docs/TEP_LOCAL_IPC.md', 'tests/test_tep_aggregator_ipc_step7b.py',
+    'docs/TEP_AGGREGATOR_WIRING.md', 'tep/hb_tep.py',
+    'systemd/hashburst-tep.service', 'config/hashburst-tep.env.example',
+    'tests/test_tep_packaging_step7c.py', 'tests/test_tep_nat_runtime_v215.py',
     'docs/TEP_PACKAGING_STEP7C.md',
 ]
 
@@ -60,6 +61,7 @@ must(len(set(EXPECTED_TYPES.values())) == len(EXPECTED_TYPES), 'packet type coll
 
 patched = (ROOT/'patched/hb_tep.py').read_text(encoding='utf-8')
 canonical = (ROOT/'tep/hb_tep.py').read_text(encoding='utf-8')
+runtime = (ROOT/'tep/hb_tep_runtime.py').read_text(encoding='utf-8')
 for forbidden in ['subprocess', 'os.system', 'shell=True', '127.0.0.1:5011']:
     must(forbidden not in patched, f'forbidden construct in patched daemon: {forbidden}')
 
@@ -80,9 +82,18 @@ for required_text in [
 ]:
     must(required_text in canonical, f'missing canonical daemon contract: {required_text}')
 
+for required_text in [
+    'find_by_wire_node_id', '_record_authenticated_heartbeat',
+    'update_authenticated_endpoint', '_relay_table.observe',
+    'rendezvous_peer_id != self.peer_id', 'storage.summary',
+]:
+    must(required_text in runtime, f'missing v2.1.5 NAT runtime contract: {required_text}')
+for forbidden in ['subprocess', 'shell=True', 'http.proxy', 'files.delete']:
+    must(forbidden not in runtime, f'forbidden v2.1.5 runtime capability: {forbidden}')
+
 systemd = (ROOT/'systemd/hashburst-tep.service').read_text(encoding='utf-8')
 for required_text in [
-    'ExecStart=/usr/bin/python3 -m tep.hb_tep',
+    'ExecStart=/usr/bin/python3 -m tep.hb_tep_runtime',
     'EnvironmentFile=-/etc/hashburst/hashburst-tep.env',
     'NoNewPrivileges=true', 'ProtectSystem=strict',
 ]:
@@ -92,12 +103,8 @@ for forbidden in ['8093', '8094', '8095', '5011']:
 
 installer = (ROOT/'install.sh').read_text(encoding='utf-8')
 must('/opt/hashburst-tep/tep' in installer, 'installer does not package canonical TEP')
-for forbidden in [
-    'systemctl enable --now hashburst-tep',
-    'systemctl start hashburst-tep',
-    'systemctl restart hashburst-tep',
-]:
-    must(forbidden not in installer, f'installer must not activate TEP: {forbidden}')
+must('bash "$SCRIPT_DIR/bin/hb-tep-onboard"' in installer,
+     'v2.1.5 installer must invoke the guarded TEP onboarding helper')
 
 services = (ROOT/'tep/hb_tep_services.py').read_text(encoding='utf-8')
 must('storage.summary' in services, 'storage.summary missing')
@@ -119,7 +126,8 @@ for forbidden in ['http://0.0.0.0', 'https://', 'subprocess', 'shell=True']:
 ci = (ROOT/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 for token in ['v2.1.4 lifecycle safety', 'v2.1.4 release contract',
               'HB-TEP-APP unit and daemon integration', 'HB-TEP-APP release contract',
-              'tests.test_tep_ipc_step7a', 'tests.test_tep_aggregator_ipc_step7b']:
+              'tests.test_tep_ipc_step7a', 'tests.test_tep_aggregator_ipc_step7b',
+              'tests.test_tep_nat_runtime_v215']:
     must(token in ci, f'CI gate missing: {token}')
 
 print(json.dumps({
@@ -127,6 +135,7 @@ print(json.dumps({
     'baseline_sha256': BASELINE_SHA,
     'patched_sha256': sha256(ROOT/'patched/hb_tep.py'),
     'canonical_sha256': sha256(ROOT/'tep/hb_tep.py'),
+    'runtime_sha256': sha256(ROOT/'tep/hb_tep_runtime.py'),
     'packet_types': {k: pt[k] for k in EXPECTED_TYPES},
     'required_files': len(REQUIRED),
 }, indent=2, sort_keys=True))

@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = (ROOT / "bin" / "hb-tep-onboard").read_text(encoding="utf-8")
 INSTALL = (ROOT / "install.sh").read_text(encoding="utf-8")
 SERVICE = (ROOT / "systemd" / "hashburst-tep.service").read_text(encoding="utf-8")
+RUNTIME = (ROOT / "tep" / "hb_tep_runtime.py").read_text(encoding="utf-8")
 
 
 class TepInstallerV215Tests(unittest.TestCase):
@@ -33,8 +34,15 @@ class TepInstallerV215Tests(unittest.TestCase):
         self.assertNotIn("swarm.key", SCRIPT)
         self.assertNotIn("replication_token", SCRIPT)
 
+    def test_canonical_rendezvous_enables_only_local_self_failover(self):
+        self.assertIn('if [ "$NODE_NAME" = "$RENDEZVOUS_NODE_ID" ]; then', SCRIPT)
+        self.assertIn('HB_TEP_RELAY_ENABLED "1" replace', SCRIPT)
+        self.assertIn('HB_TEP_RENDEZVOUS_PEERS "$PEER_ID" replace', SCRIPT)
+        self.assertIn('rendezvous_peer_id != self.peer_id', RUNTIME)
+        self.assertIn('env.service != "storage.summary"', RUNTIME)
+
     def test_tep_service_remains_local_for_status_ipc_and_hardened(self):
-        self.assertIn("ExecStart=/usr/bin/python3 -m tep.hb_tep", SERVICE)
+        self.assertIn("ExecStart=/usr/bin/python3 -m tep.hb_tep_runtime", SERVICE)
         self.assertIn("NoNewPrivileges=true", SERVICE)
         self.assertIn("ProtectSystem=strict", SERVICE)
         self.assertIn("ProtectHome=true", SERVICE)

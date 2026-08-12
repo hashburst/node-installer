@@ -9,7 +9,7 @@ User=root
 WorkingDirectory=/opt/hashburst-tep
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/hashburst/hashburst-tep.env
-ExecStart=/usr/bin/python3 -m tep.hb_tep
+ExecStart=/usr/bin/python3 -m tep.hb_tep_runtime
 Restart=on-failure
 RestartSec=5
 UMask=0077
