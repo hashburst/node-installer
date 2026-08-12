@@ -7,11 +7,14 @@
 - Preserve existing `/var/lib/hashburst/tep` key material and refuse silent replacement of an existing stable `HB_TEP_PEER_ID`.
 - Generate/read the TEP X25519 public key before a full/blockchain node starts, write `TEP_PUBKEY` into the HashBurst node environment, then bind TEP to the stable blockchain Peer ID returned by the local RPC health endpoint.
 - Add public rendezvous bootstrap identity for first contact and trusted one-hop NAT relay configuration without embedding private network secrets.
+- Refresh registered dynamic/NAT peer coordinates from authenticated heartbeats only after full node identity and registered TEP public-key validation.
+- Allow the canonical `blockchainapi.one` infrastructure node to use its own TEP identity as the local rendezvous for loopback storage-summary failover.
 - Keep relay capability disabled by default on ordinary nodes; a node only trusts the configured rendezvous for relay delivery.
+- Restrict the v2.1.5 local rendezvous path to `storage.summary`; no generic HTTP, shell or administrative tunnel is introduced.
 - Keep edge HB-Files summary port 8091 unexposed and use HB-TEP for NAT/edge summary access.
 - Integrate the storage aggregator TEP adapter, separate routing `tep_node_id` from storage `summary_node_id`, and support both repository-package and production flat module layouts.
 - Production-validate storage aggregator cutover on 64.31.4.9 with node-6 over direct TEP, relay disabled, accounting `ok`, stable PIDs/NRestarts, and unchanged mining/controller listeners.
-- Add v2.1.5 onboarding/release regression CI while preserving all v2.1.2-v2.1.4 replication/accounting safety contracts.
+- Add v2.1.5 onboarding, authenticated NAT runtime and release regression CI while preserving all v2.1.2-v2.1.4 replication/accounting safety contracts.
 - Replication controller/agent remain opt-in; destructive UNPIN remains double-gated and disabled by default.
 
 ## 2.1.4
