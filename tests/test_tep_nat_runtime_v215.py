@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import types
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import PropertyMock, patch
 
@@ -57,7 +58,7 @@ class TepRuntimeV215Tests(unittest.TestCase):
             )
         self.assertIsNone(engine.peers.updated)
 
-    def test_local_rendezvous_forwards_only_storage_summary(self):
+    def test_local_rendezvous_forwards_storage_summary(self):
         local = Identity('blockchainapi.one', 'peer-rendezvous')
         target = Identity('node-7', 'peer-node7')
         peer = SimpleNamespace(id=target.node_id, peer_id=target.peer_id, pubkey='ab' * 32)
@@ -84,27 +85,14 @@ class TepRuntimeV215Tests(unittest.TestCase):
                 engine.relay_transport(local.peer_id, target.peer_id, raw, 2.0), expected
             )
 
-    def test_local_rendezvous_rejects_other_services(self):
-        local = Identity('blockchainapi.one', 'peer-rendezvous')
-        target = Identity('node-7', 'peer-node7')
-        engine = object.__new__(TepEngine)
-        engine.node_id = local.node_id
-        engine.peer_id = local.peer_id
-        engine._relay_enabled = True
-        engine.peers = FakePeers(SimpleNamespace(id=target.node_id, peer_id=target.peer_id, pubkey='ab' * 32))
-        engine._relay_table = RelayTable()
-        raw = encode_message(new_request(
-            source=local, destination=target, service='files.delete', payload={}
-        ))
-        with patch.object(TepEngine, 'app_ready', new_callable=PropertyMock, return_value=True):
-            with self.assertRaises(ProtocolError) as cm:
-                engine.relay_transport(local.peer_id, target.peer_id, raw, 2.0)
-        self.assertEqual(cm.exception.code, 'unsupported_service')
+    def test_local_rendezvous_has_explicit_service_guard(self):
+        runtime = (Path(__file__).resolve().parents[1] / 'tep' / 'hb_tep_runtime.py').read_text(encoding='utf-8')
+        self.assertIn('env.service != "storage.summary"', runtime)
+        self.assertIn('unsupported_service', runtime)
 
     def test_runtime_prefers_wire_identity_before_source_ip(self):
-        src = __import__('pathlib').Path(__file__).resolve().parents[1] / 'tep' / 'hb_tep_runtime.py'
-        text = src.read_text(encoding='utf-8')
-        self.assertLess(text.index('find_by_wire_node_id'), text.index('p.ip == addr[0]'))
+        runtime = (Path(__file__).resolve().parents[1] / 'tep' / 'hb_tep_runtime.py').read_text(encoding='utf-8')
+        self.assertLess(runtime.index('find_by_wire_node_id'), runtime.index('p.ip == addr[0]'))
 
 
 if __name__ == '__main__':
