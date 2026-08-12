@@ -146,10 +146,22 @@ def _fetch_summary_tep(node: dict) -> dict:
         summary_role = str(summary.get("role") or "").strip()
         if configured_role and summary_role != configured_role:
             raise ValueError("TEP summary role does not match configured role")
-        configured_name = str(node.get("tep_node_id") or node.get("name") or "").strip()
+
+        # TEP routing identity and storage-summary identity are distinct contracts.
+        # tep_node_id is sent to the local TEP daemon for authenticated routing.
+        # summary_node_id, when present, is the expected storage summary node_id.
+        # Falling back preserves compatibility with existing configs where both
+        # identities are intentionally the same.
+        configured_summary_id = str(
+            node.get("summary_node_id")
+            or node.get("tep_node_id")
+            or node.get("name")
+            or ""
+        ).strip()
         summary_node_id = str(summary.get("node_id") or "").strip()
-        if configured_name and summary_node_id != configured_name:
-            raise ValueError("TEP summary node_id does not match configured identity")
+        if configured_summary_id and summary_node_id != configured_summary_id:
+            raise ValueError("TEP summary node_id does not match configured summary identity")
+
         out.update(summary)
         out["online"] = True
         out["transport"] = "tep"
