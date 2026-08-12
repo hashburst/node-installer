@@ -20,6 +20,7 @@ REQUIRED = [
     'docs/TEP_APP_PROTOCOL.md', 'docs/TEP_NAT_DESIGN.md',
     'docs/TEP_SECURITY_MODEL.md', 'docs/TEP_ROLLBACK.md',
     '.github/workflows/ci.yml', 'baseline/hb_tep-production-current.py',
+    'tests/test_tep_ipc_step7a.py', 'docs/TEP_LOCAL_IPC.md',
 ]
 
 def sha256(path: Path) -> str:
@@ -60,7 +61,10 @@ for forbidden in ['subprocess', 'os.system', 'shell=True', '127.0.0.1:5011']:
 for required_text in [
     "PKT_APP_REQUEST     = 0x20", "PKT_RELAY_RESPONSE  = 0x24",
     "'app_ready': self.app_ready", "'relay': bool(self.app_ready and self._relay_enabled)",
-    "HTTPServer(('127.0.0.1', self.status_port)",
+    "ThreadingHTTPServer(('127.0.0.1', self.status_port)",
+    "self.path != '/app/storage-summary'",
+    "IPC_MAX_REQUEST_BYTES = 8 * 1024", "IPC_MAX_RESPONSE_BYTES = 32 * 1024",
+    "IPC_TIMEOUT_SEC = 3.0", "IPC_DIRECT_TIMEOUT_SEC = 1.2",
 ]:
     must(required_text in patched, f'missing daemon contract: {required_text}')
 
@@ -76,7 +80,8 @@ must("role in {'primary', 'secondary'}" in agg or 'role in {"primary", "secondar
 
 ci = (ROOT/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 for token in ['v2.1.4 lifecycle safety', 'v2.1.4 release contract',
-              'HB-TEP-APP unit and daemon integration', 'HB-TEP-APP release contract']:
+              'HB-TEP-APP unit and daemon integration', 'HB-TEP-APP release contract',
+              'tests.test_tep_ipc_step7a']:
     must(token in ci, f'CI gate missing: {token}')
 
 print(json.dumps({

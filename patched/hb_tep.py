@@ -16,7 +16,7 @@ import argparse, hashlib, hmac as hmac_mod, json, logging
 import os, socket, struct, threading, time, urllib.request
 import base64
 from dataclasses import dataclass, asdict, field
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Optional
 
@@ -25,8 +25,9 @@ from tep.hb_tep_app import (
     new_error, new_response,
 )
 from tep.hb_tep_services import ServiceError, build_default_registry
+from tep.hb_tep_client import TepClientError, TepRpcClient
 from tep.hb_tep_relay import (
-    RelayError, RelayPolicy, RelayTable, RelayDispatcher,
+    RelayError, RelayPolicy, RelayTable, RelayDispatcher, FailoverTepTransport,
     new_relay_request,
 )
 
@@ -57,6 +58,11 @@ LISTEN_PORT   = 47777
 STATUS_PORT   = 47778
 HEARTBEAT_SEC = 10
 DNS_SYNC_SEC  = 60      # intervallo sincronizzazione peers dalla blockchain
+IPC_MAX_REQUEST_BYTES = 8 * 1024
+IPC_MAX_RESPONSE_BYTES = 32 * 1024
+IPC_TIMEOUT_SEC = 3.0
+IPC_DIRECT_TIMEOUT_SEC = 1.2
+IPC_MAX_RELAY_ATTEMPTS = 2
 
 STATE_DIR  = Path('/var/lib/hashburst/tep')
 PEERS_FILE = STATE_DIR / 'peers.json'
@@ -308,6 +314,7 @@ class TepEngine:
                  status_port: int = STATUS_PORT, relay_enabled: bool = False,
                  relay_clients: Optional[list[str]] = None,
                  trusted_rendezvous: Optional[list[str]] = None,
+                 rendezvous_peer_ids: Optional[list[str]] = None,
                  service_registry=None):
         self.node_id       = node_id
         self.node_id_bytes = node_id.encode('ascii', 'replace')[:16]
@@ -327,6 +334,7 @@ class TepEngine:
         self._relay_enabled = bool(relay_enabled)
         self._relay_clients = tuple(relay_clients or ())
         self._trusted_rendezvous = tuple(trusted_rendezvous or ())
+        self._rendezvous_peer_ids = tuple(dict.fromkeys(str(x).strip() for x in (rendezvous_peer_ids or ()) if str(x).strip()))
         self._app_pending: dict[str, dict] = {}
         self._app_pending_lock = threading.Lock()
 
@@ -484,6 +492,41 @@ class TepEngine:
                 raise ProtocolError('bad_response', 'invalid relay response payload') from exc
         finally:
             self._pending_remove(relay_msg['request_id'])
+
+    def storage_summary_rpc(self, node_id: str, peer_id: str) -> dict:
+        """Local-only IPC operation: fixed HB-TEP storage.summary RPC.
+
+        The caller selects only a registered TEP identity. Service, payload,
+        transport policy, timeouts and relay candidates are daemon-controlled.
+        """
+        node_id = str(node_id or '').strip()
+        peer_id = str(peer_id or '').strip()
+        if not node_id or len(node_id) > 128:
+            raise ProtocolError('bad_request', 'invalid node_id')
+        if not peer_id or len(peer_id) > 256:
+            raise ProtocolError('bad_request', 'invalid peer_id')
+        if not self.app_ready:
+            raise ProtocolError('app_unavailable', 'HB-TEP-APP/1 is not ready')
+
+        transport = FailoverTepTransport(
+            direct=self.app_transport,
+            relay=self.relay_transport,
+            relay_peer_ids=self._rendezvous_peer_ids,
+            direct_timeout_sec=IPC_DIRECT_TIMEOUT_SEC,
+            max_relay_attempts=IPC_MAX_RELAY_ATTEMPTS,
+        )
+        client = TepRpcClient(local_identity=self.local_identity, transport=transport)
+        summary = client.request(
+            destination=Identity(node_id=node_id, peer_id=peer_id),
+            service='storage.summary',
+            payload={},
+            timeout_sec=IPC_TIMEOUT_SEC,
+        )
+        return {
+            'summary': summary,
+            'path': transport.last_path,
+            'relay_peer_id': transport.last_relay_peer_id,
+        }
 
     def _send_app_error(self, request_env, peer: Peer, addr, code: str, message: str,
                         status: int = 400) -> None:
@@ -774,15 +817,67 @@ class TepEngine:
         engine = self
         class StatusHandler(BaseHTTPRequestHandler):
             def log_message(self, *a): pass
+
+            def _send_json(self, status: int, payload: dict) -> None:
+                body = json.dumps(payload, separators=(',', ':')).encode('utf-8')
+                if len(body) > IPC_MAX_RESPONSE_BYTES:
+                    status = 502
+                    body = b'{"ok":false,"error":{"code":"response_too_large"}}'
+                self.send_response(status)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
             def do_GET(self):
                 if self.path == '/favicon.ico':
                     self.send_response(204); self.end_headers(); return
-                body = json.dumps(engine.status_payload(), indent=2).encode()
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(body)
-        server = HTTPServer(('127.0.0.1', self.status_port), StatusHandler)
+                if self.path.startswith('/app/'):
+                    self._send_json(405, {'ok': False, 'error': {'code': 'method_not_allowed'}})
+                    return
+                self._send_json(200, engine.status_payload())
+
+            def do_POST(self):
+                if self.path != '/app/storage-summary':
+                    self._send_json(404, {'ok': False, 'error': {'code': 'not_found'}})
+                    return
+                content_type = (self.headers.get('Content-Type') or '').split(';', 1)[0].strip().lower()
+                if content_type != 'application/json':
+                    self._send_json(415, {'ok': False, 'error': {'code': 'unsupported_media_type'}})
+                    return
+                raw_length = self.headers.get('Content-Length')
+                if raw_length is None:
+                    self._send_json(411, {'ok': False, 'error': {'code': 'length_required'}})
+                    return
+                try:
+                    length = int(raw_length)
+                except ValueError:
+                    self._send_json(400, {'ok': False, 'error': {'code': 'bad_content_length'}})
+                    return
+                if length <= 0 or length > IPC_MAX_REQUEST_BYTES:
+                    self._send_json(413, {'ok': False, 'error': {'code': 'request_too_large'}})
+                    return
+                try:
+                    data = json.loads(self.rfile.read(length).decode('utf-8'))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    self._send_json(400, {'ok': False, 'error': {'code': 'invalid_json'}})
+                    return
+                if not isinstance(data, dict) or set(data) != {'node_id', 'peer_id'}:
+                    self._send_json(400, {'ok': False, 'error': {'code': 'bad_request'}})
+                    return
+                try:
+                    result = engine.storage_summary_rpc(data['node_id'], data['peer_id'])
+                    self._send_json(200, {'ok': True, **result})
+                except TepClientError as exc:
+                    status = 504 if exc.code == 'request_timeout' else 503
+                    self._send_json(status, {'ok': False, 'error': {'code': exc.code}})
+                except ProtocolError as exc:
+                    self._send_json(503, {'ok': False, 'error': {'code': exc.code}})
+                except Exception:
+                    LOG.exception('Local TEP IPC storage.summary failed')
+                    self._send_json(500, {'ok': False, 'error': {'code': 'internal_error'}})
+
+        server = ThreadingHTTPServer(('127.0.0.1', self.status_port), StatusHandler)
         self.status_port = int(server.server_port)
         threading.Thread(target=server.serve_forever, daemon=True, name='tep-status').start()
         return server
@@ -818,6 +913,9 @@ def main():
                     help='Stable peer_id authorized to request relay; repeatable')
     ap.add_argument('--trusted-rendezvous', action='append', default=[],
                     help='Stable rendezvous peer_id trusted to deliver relayed APP requests')
+    default_ipc_rendezvous = [x.strip() for x in os.environ.get('HB_TEP_RENDEZVOUS_PEERS', '').split(',') if x.strip()]
+    ap.add_argument('--rendezvous-peer', action='append', default=default_ipc_rendezvous,
+                    help='Stable rendezvous peer_id used by local storage-summary IPC fallback; repeatable')
     ap.add_argument('--log-level', default='INFO',
                     choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'])
     args = ap.parse_args()
@@ -837,6 +935,7 @@ def main():
         relay_enabled=args.relay_enabled,
         relay_clients=args.relay_client,
         trusted_rendezvous=args.trusted_rendezvous,
+        rendezvous_peer_ids=args.rendezvous_peer,
     ).run()
 
 
