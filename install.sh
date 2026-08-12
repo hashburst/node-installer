@@ -124,6 +124,7 @@ need_file "$SCRIPT_DIR/tep/hb_tep.py"
 need_file "$SCRIPT_DIR/tep/hb_tep_app.py"
 need_file "$SCRIPT_DIR/tep/hb_tep_client.py"
 need_file "$SCRIPT_DIR/tep/hb_tep_relay.py"
+need_file "$SCRIPT_DIR/tep/hb_tep_runtime.py"
 need_file "$SCRIPT_DIR/tep/hb_tep_services.py"
 need_file "$SCRIPT_DIR/tep/hb_tep_wire.py"
 need_file "$SCRIPT_DIR/config/hashburst-tep.env.example"
@@ -163,6 +164,16 @@ if [ "$ROLE" != blockchain ] && [ "$STORAGE_ROLE" != primary ]; then
     echo "ERROR: non-primary storage/edge node requires --swarm-master-ip and --swarm-peer-id" >&2
     exit 1
   }
+fi
+
+# A stale /tmp/swarm.key must never silently replace an established private
+# federation identity. Reinstall is idempotent: preserve the installed key, and
+# fail closed if an operator supplied a different candidate key.
+if [ "$ROLE" != blockchain ] && [ -f /tmp/swarm.key ] && [ -f /etc/hashburst/swarm.key ]; then
+  if ! cmp -s /tmp/swarm.key /etc/hashburst/swarm.key; then
+    echo "ERROR: /tmp/swarm.key differs from existing /etc/hashburst/swarm.key; refusing federation key replacement" >&2
+    exit 1
+  fi
 fi
 
 UFW_ACTIVE="no"
@@ -206,7 +217,9 @@ install -d -m 0755 /etc/hashburst /var/log/hashburst /var/lib/hashburst
 install -m 0755 "$SCRIPT_DIR/bin/hashburst-node" /usr/local/bin/hashburst-node
 
 if [ "$ROLE" != blockchain ]; then
-  if [ -f /tmp/swarm.key ]; then install -m 0600 /tmp/swarm.key /etc/hashburst/swarm.key; fi
+  if [ -f /tmp/swarm.key ] && [ ! -f /etc/hashburst/swarm.key ]; then
+    install -m 0600 /tmp/swarm.key /etc/hashburst/swarm.key
+  fi
   if [ "$STORAGE_ROLE" = primary ] && [ ! -f /etc/hashburst/swarm.key ]; then
     umask 077
     { printf '/key/swarm/psk/1.0.0/\n/base16/\n'; od -A none -t x1 -N 32 /dev/urandom | tr -d ' \n'; printf '\n'; } > /etc/hashburst/swarm.key
