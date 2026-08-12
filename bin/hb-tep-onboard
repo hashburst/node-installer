@@ -87,15 +87,24 @@ if path.exists():
 PY
 }
 
-set_env "$TEP_ENV" HB_TEP_NODE_ID "$NODE_NAME" if-empty
+EXISTING_NODE_ID="$(get_env "$TEP_ENV" HB_TEP_NODE_ID)"
+if [ -n "$EXISTING_NODE_ID" ] && [ "$EXISTING_NODE_ID" != "$NODE_NAME" ]; then
+  echo "ERROR: refusing to replace existing HB_TEP_NODE_ID ($EXISTING_NODE_ID) with $NODE_NAME" >&2
+  exit 1
+fi
+set_env "$TEP_ENV" HB_TEP_NODE_ID "$NODE_NAME" replace
 set_env "$TEP_ENV" HB_TEP_LISTEN "0.0.0.0" if-empty
 set_env "$TEP_ENV" HB_TEP_RPC_PORT "$RPC_PORT" if-empty
 set_env "$TEP_ENV" HB_TEP_LOG_LEVEL "INFO" if-empty
-set_env "$TEP_ENV" HB_TEP_RELAY_ENABLED "0" if-empty
 
-if [ "$NODE_NAME" != "$RENDEZVOUS_NODE_ID" ]; then
-  set_env "$TEP_ENV" HB_TEP_TRUSTED_RENDEZVOUS "$RENDEZVOUS_PEER_ID" if-empty
-  set_env "$TEP_ENV" HB_TEP_RENDEZVOUS_PEERS "$RENDEZVOUS_PEER_ID" if-empty
+if [ "$NODE_NAME" = "$RENDEZVOUS_NODE_ID" ]; then
+  set_env "$TEP_ENV" HB_TEP_RELAY_ENABLED "1" replace
+else
+  # Ordinary nodes must never retain stale relay capability or stale rendezvous
+  # coordinates from an earlier/manual configuration.
+  set_env "$TEP_ENV" HB_TEP_RELAY_ENABLED "0" replace
+  set_env "$TEP_ENV" HB_TEP_TRUSTED_RENDEZVOUS "$RENDEZVOUS_PEER_ID" replace
+  set_env "$TEP_ENV" HB_TEP_RENDEZVOUS_PEERS "$RENDEZVOUS_PEER_ID" replace
 fi
 
 # Public bootstrap identity only. No swarm/admin/replication secret is stored.
@@ -164,9 +173,9 @@ if [ "$ROLE" = full ] || [ "$ROLE" = blockchain ]; then
     set_env "$TEP_ENV" HB_TEP_RELAY_ENABLED "1" replace
     set_env "$TEP_ENV" HB_TEP_RENDEZVOUS_PEERS "$PEER_ID" replace
   else
-    set_env "$TEP_ENV" HB_TEP_RELAY_ENABLED "0" if-empty
-    set_env "$TEP_ENV" HB_TEP_TRUSTED_RENDEZVOUS "$RENDEZVOUS_PEER_ID" if-empty
-    set_env "$TEP_ENV" HB_TEP_RENDEZVOUS_PEERS "$RENDEZVOUS_PEER_ID" if-empty
+    set_env "$TEP_ENV" HB_TEP_RELAY_ENABLED "0" replace
+    set_env "$TEP_ENV" HB_TEP_TRUSTED_RENDEZVOUS "$RENDEZVOUS_PEER_ID" replace
+    set_env "$TEP_ENV" HB_TEP_RENDEZVOUS_PEERS "$RENDEZVOUS_PEER_ID" replace
   fi
 
   systemctl restart hashburst-tep.service

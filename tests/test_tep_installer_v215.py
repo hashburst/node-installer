@@ -41,6 +41,17 @@ class TepInstallerV215Tests(unittest.TestCase):
         self.assertIn('rendezvous_peer_id != self.peer_id', RUNTIME)
         self.assertIn('env.service != "storage.summary"', RUNTIME)
 
+    def test_ordinary_nodes_force_relay_off_and_canonical_rendezvous(self):
+        self.assertGreaterEqual(SCRIPT.count('HB_TEP_RELAY_ENABLED "0" replace'), 2)
+        self.assertGreaterEqual(SCRIPT.count('HB_TEP_TRUSTED_RENDEZVOUS "$RENDEZVOUS_PEER_ID" replace'), 2)
+        self.assertGreaterEqual(SCRIPT.count('HB_TEP_RENDEZVOUS_PEERS "$RENDEZVOUS_PEER_ID" replace'), 2)
+        self.assertNotIn('HB_TEP_RELAY_ENABLED "0" if-empty', SCRIPT)
+
+    def test_stable_tep_node_id_replacement_is_refused(self):
+        self.assertIn('EXISTING_NODE_ID="$(get_env "$TEP_ENV" HB_TEP_NODE_ID)"', SCRIPT)
+        self.assertIn('refusing to replace existing HB_TEP_NODE_ID', SCRIPT)
+        self.assertIn('set_env "$TEP_ENV" HB_TEP_NODE_ID "$NODE_NAME" replace', SCRIPT)
+
     def test_tep_service_remains_local_for_status_ipc_and_hardened(self):
         self.assertIn("ExecStart=/usr/bin/python3 -m tep.hb_tep_runtime", SERVICE)
         self.assertIn("NoNewPrivileges=true", SERVICE)
@@ -50,8 +61,15 @@ class TepInstallerV215Tests(unittest.TestCase):
 
     def test_installer_wires_onboarding_for_release(self):
         self.assertIn('need_file "$SCRIPT_DIR/bin/hb-tep-onboard"', INSTALL)
+        self.assertIn('need_file "$SCRIPT_DIR/tep/hb_tep_runtime.py"', INSTALL)
         self.assertIn('bash "$SCRIPT_DIR/bin/hb-tep-onboard" "$NODE_NAME" "$ROLE" "$STORAGE_ROLE"', INSTALL)
         self.assertIn('VERSION="2.1.5"', INSTALL)
+
+    def test_reinstall_never_silently_replaces_swarm_key(self):
+        self.assertIn('cmp -s /tmp/swarm.key /etc/hashburst/swarm.key', INSTALL)
+        self.assertIn('refusing federation key replacement', INSTALL)
+        self.assertIn('[ -f /tmp/swarm.key ] && [ ! -f /etc/hashburst/swarm.key ]', INSTALL)
+        self.assertNotIn('if [ -f /tmp/swarm.key ]; then install -m 0600 /tmp/swarm.key /etc/hashburst/swarm.key; fi', INSTALL)
 
 
 if __name__ == "__main__":
