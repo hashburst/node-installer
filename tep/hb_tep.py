@@ -775,7 +775,11 @@ class TepEngine:
 
             try:
                 msg = json.loads(plain.decode())
-                self.peers.mark_seen(peer_id, latency_ms=0.0,
+                # The legacy wire header carries only 16 bytes of node_id.
+                # A peer may therefore have been resolved by source IP even
+                # when parsed['node_id'] is truncated. Always mark the
+                # canonical registry identity that was actually resolved.
+                self.peers.mark_seen(peer.id, latency_ms=0.0,
                                      pubkey=msg.get('pubkey', ''))
             except:
                 self.stats.pkts_dropped += 1
