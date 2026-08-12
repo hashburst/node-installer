@@ -44,7 +44,7 @@ ok('tep_service_hardened', all(x in service for x in ['NoNewPrivileges=true','Pr
 ok('tep_service_uses_v215_runtime', 'ExecStart=/usr/bin/python3 -m tep.hb_tep_runtime' in service)
 ok('dynamic_nat_heartbeat_refresh', all(x in runtime for x in ['find_by_wire_node_id','_record_authenticated_heartbeat','update_authenticated_endpoint','_relay_table.observe']))
 ok('dynamic_nat_key_pin', 'heartbeat TEP public key mismatch' in runtime)
-ok('local_rendezvous_storage_summary_only', 'env.service != "storage.summary"' in runtime and 'local rendezvous permits storage.summary only' in runtime)
+ok('local_rendezvous_storage_summary_only', 'env.service != "storage.summary"' in runtime and 'local relay permits storage.summary only' in runtime)
 ok('aggregator_tep_transport', 'transport' in agg and 'tep_peer_id' in agg and 'summary_node_id' in agg)
 ok('aggregator_flat_layout_supported', 'import hb_tep_adapter' in agg)
 ok('aggregator_ipc_fixed_local', 'IPC_HOST = "127.0.0.1"' in adapter and 'IPC_PATH = "/app/storage-summary"' in adapter)
