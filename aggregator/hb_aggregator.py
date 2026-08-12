@@ -25,7 +25,26 @@ from pathlib import Path
 try:
     from . import hb_tep_adapter
 except ImportError:
-    import hb_tep_adapter  # type: ignore
+    # Legacy release tests load this module directly via importlib.util,
+    # so no package context is available. Temporarily expose the repo root
+    # and import the adapter through the aggregator namespace package.
+    import importlib
+    import sys
+
+    _repo_root = str(Path(__file__).resolve().parent.parent)
+    _repo_root_added = _repo_root not in sys.path
+
+    if _repo_root_added:
+        sys.path.insert(0, _repo_root)
+
+    try:
+        hb_tep_adapter = importlib.import_module("aggregator.hb_tep_adapter")
+    finally:
+        if _repo_root_added:
+            try:
+                sys.path.remove(_repo_root)
+            except ValueError:
+                pass
 
 NODES_FILE = os.environ.get("HB_STORAGE_NODES", "/etc/hashburst/storage-nodes.json")
 TIMEOUT = float(os.environ.get("HB_AGGREGATOR_TIMEOUT", "3"))
