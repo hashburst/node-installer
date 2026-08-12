@@ -96,6 +96,70 @@ class Step7BAggregatorIpcTests(unittest.TestCase):
         self.assertEqual(seen["content_type"], "application/json")
         self.assertEqual(seen["body"], {"node_id": "node-7", "peer_id": "peer-node7"})
 
+    def test_tep_routing_identity_can_differ_from_summary_identity(self):
+        node = {
+            "name": "node-6",
+            "tep_node_id": "node-6",
+            "summary_node_id": "hb-storage-node6",
+            "transport": "tep",
+            "tep_peer_id": "peer-node6",
+            "role": "secondary",
+            "capacity_class": "committable",
+        }
+        summary = {
+            "available": True,
+            "node_id": "hb-storage-node6",
+            "role": "secondary",
+            "capacity_total_gb": 400,
+            "used_gb": 3.65,
+            "timestamp": int(time.time()),
+        }
+        IpcHandler.body = {
+            "ok": True,
+            "summary": summary,
+            "path": "direct",
+            "relay_peer_id": None,
+        }
+
+        result = hb_aggregator._fetch_summary(node)
+
+        self.assertTrue(result["online"])
+        self.assertEqual(result["node_id"], "hb-storage-node6")
+        self.assertEqual(result["transport"], "tep")
+        self.assertEqual(result["transport_path"], "direct")
+        self.assertEqual(IpcHandler.seen[0]["body"], {
+            "node_id": "node-6",
+            "peer_id": "peer-node6",
+        })
+
+    def test_summary_identity_mismatch_fails_closed(self):
+        node = self._node()
+        node["summary_node_id"] = "hb-storage-node7"
+        IpcHandler.body = {
+            "ok": True,
+            "summary": self._summary(),
+            "path": "direct",
+            "relay_peer_id": None,
+        }
+
+        result = hb_aggregator._fetch_summary(node)
+
+        self.assertFalse(result["online"])
+        self.assertIn("configured summary identity", result["error"])
+
+    def test_summary_identity_defaults_to_tep_node_id_for_compatibility(self):
+        IpcHandler.body = {
+            "ok": True,
+            "summary": self._summary(),
+            "path": "direct",
+            "relay_peer_id": None,
+        }
+
+        result = hb_aggregator._fetch_summary(self._node())
+
+        self.assertTrue(result["online"])
+        self.assertEqual(result["node_id"], "node-7")
+
     def test_relay_metadata_is_local_and_edge_remains_best_effort(self):
         remote = self._summary()
         remote["_tep_transport_path"] = "forged"
