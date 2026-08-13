@@ -20,6 +20,7 @@ RENDEZVOUS_IP="${HB_TEP_BOOTSTRAP_IP:-64.31.4.9}"
 RENDEZVOUS_PORT="${HB_TEP_BOOTSTRAP_PORT:-47777}"
 RENDEZVOUS_PEER_ID="${HB_TEP_BOOTSTRAP_PEER_ID:-12D3KooWCiH3B8E84UNsop5epp7vNXfC6oSg2iyB4wjyCm6a84ow}"
 RENDEZVOUS_PUBKEY="${HB_TEP_BOOTSTRAP_PUBKEY:-50506353bd0ac23aec8502e3d5ed6c018975a7c5ea6e22dc363df321d6ca8960}"
+BLOCKCHAIN_BOOTSTRAP="/ip4/${RENDEZVOUS_IP}/tcp/30307/p2p/${RENDEZVOUS_PEER_ID}"
 
 [ "$(id -u)" = 0 ] || { echo "ERROR: hb-tep-onboard must run as root" >&2; exit 1; }
 [ -n "$NODE_NAME" ] || { echo "ERROR: node name is required" >&2; exit 2; }
@@ -154,6 +155,18 @@ TEP_PUBKEY="$(python3 -c 'import json; print(json.load(open("/tmp/hb-tep-onboard
 set_env "$NODE_ENV" TEP_PUBKEY "$TEP_PUBKEY" replace
 
 if [ "$ROLE" = full ] || [ "$ROLE" = blockchain ]; then
+  # Non-rendezvous blockchain nodes must join the canonical chain before their
+  # NODE_REGISTRATION can propagate. Preserve an operator-supplied bootstrap.
+  if [ "$NODE_NAME" != "$RENDEZVOUS_NODE_ID" ]; then
+    set_env "$NODE_ENV" BOOTSTRAP_PEERS "$BLOCKCHAIN_BOOTSTRAP" if-empty
+  fi
+
+  # The production P2P listener is public while RPC remains independently
+  # controlled. Open only the blockchain P2P port when UFW is already active.
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    ufw allow 30307/tcp comment 'HashBurst blockchain P2P' >/dev/null
+  fi
+
   # The packaged blockchain requires a persistent encrypted signing/reward wallet.
   # Bootstrap exactly one identity on first boot and preserve it on reinstall.
   bash "$WALLET_BOOTSTRAP"
