@@ -38,6 +38,19 @@ class TepInstallerV215Tests(unittest.TestCase):
         self.assertIn('multiple reward keystores exist', WALLET)
         self.assertIn('Reward/signing wallet preserved', WALLET)
 
+    def test_blockchain_nodes_auto_join_canonical_p2p_network(self):
+        self.assertIn('BLOCKCHAIN_BOOTSTRAP="/ip4/${RENDEZVOUS_IP}/tcp/30307/p2p/${RENDEZVOUS_PEER_ID}"', SCRIPT)
+        self.assertIn('set_env "$NODE_ENV" BOOTSTRAP_PEERS "$BLOCKCHAIN_BOOTSTRAP" if-empty', SCRIPT)
+        self.assertIn('if [ "$NODE_NAME" != "$RENDEZVOUS_NODE_ID" ]; then', SCRIPT)
+        self.assertIn("NODE_REGISTRATION can propagate", SCRIPT)
+
+    def test_blockchain_p2p_firewall_opens_before_node_start(self):
+        firewall = "ufw allow 30307/tcp comment 'HashBurst blockchain P2P'"
+        start = 'systemctl enable --now hashburst-node.service'
+        self.assertIn(firewall, SCRIPT)
+        self.assertLess(SCRIPT.index(firewall), SCRIPT.index(start))
+        self.assertIn("ufw allow 47777/udp comment 'HashBurst TEP'", SCRIPT)
+
     def test_nat_bootstrap_contains_only_public_rendezvous_identity(self):
         self.assertIn("64.31.4.9", SCRIPT)
         self.assertIn("12D3KooWCiH3B8E84UNsop5epp7vNXfC6oSg2iyB4wjyCm6a84ow", SCRIPT)
