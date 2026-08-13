@@ -47,12 +47,14 @@ run_bootstrap() {
 echo "BLOCKCHAIN WALLET FIRST BOOT"
 run_bootstrap
 REWARD1="$(awk -F= '/^REWARD_ADDRESS=/{print $2}' "$ENV_FILE")"
-KEYSTORE1="$(awk -F= '/^NODE_KEYSTORE=/{print substr($0,index($0,"=")+1)}' "$ENV_FILE")"
+KEYSTORE_DIR1="$(awk -F= '/^NODE_KEYSTORE=/{print substr($0,index($0,"=")+1)}' "$ENV_FILE")"
 PASS_ENV1="$(awk -F= '/^NODE_KEYSTORE_PASSWORD_FILE=/{print substr($0,index($0,"=")+1)}' "$ENV_FILE")"
 [[ "$REWARD1" =~ ^0x[0-9A-Fa-f]{40}$ ]]
+[ "$KEYSTORE_DIR1" = "$WALLET_DIR" ]
 [ "$PASS_ENV1" = "$PASS_FILE" ]
-[ -f "$KEYSTORE1" ]
 [ "$(find "$WALLET_DIR" -maxdepth 1 -type f -name 'UTC--*' | wc -l)" -eq 1 ]
+KEYSTORE1="$(find "$WALLET_DIR" -maxdepth 1 -type f -name 'UTC--*' -print -quit)"
+[ "$(stat -c %a "$WALLET_DIR")" = 700 ]
 [ "$(stat -c %a "$PASS_FILE")" = 600 ]
 [ "$(stat -c %a "$KEYSTORE1")" = 600 ]
 
@@ -62,10 +64,10 @@ PASS_SHA1="$(sha256sum "$PASS_FILE" | awk '{print $1}')"
 echo "BLOCKCHAIN WALLET REINSTALL"
 run_bootstrap
 REWARD2="$(awk -F= '/^REWARD_ADDRESS=/{print $2}' "$ENV_FILE")"
-KEYSTORE2="$(awk -F= '/^NODE_KEYSTORE=/{print substr($0,index($0,"=")+1)}' "$ENV_FILE")"
+KEYSTORE_DIR2="$(awk -F= '/^NODE_KEYSTORE=/{print substr($0,index($0,"=")+1)}' "$ENV_FILE")"
 PASS_ENV2="$(awk -F= '/^NODE_KEYSTORE_PASSWORD_FILE=/{print substr($0,index($0,"=")+1)}' "$ENV_FILE")"
 [ "$REWARD2" = "$REWARD1" ]
-[ "$KEYSTORE2" = "$KEYSTORE1" ]
+[ "$KEYSTORE_DIR2" = "$KEYSTORE_DIR1" ]
 [ "$PASS_ENV2" = "$PASS_ENV1" ]
 [ "$(find "$WALLET_DIR" -maxdepth 1 -type f -name 'UTC--*' | wc -l)" -eq 1 ]
 [ "$(sha256sum "$KEYSTORE1" | awk '{print $1}')" = "$KS_SHA1" ]
@@ -107,7 +109,7 @@ kill "$PID"
 wait "$PID" || true
 PID=""
 
-if grep -Eq 'REWARD_ADDRESS not set|NODE_KEYSTORE non impostato|NODE_KEYSTORE_PASSWORD_FILE non leggibile' "$LOG"; then
+if grep -Eq 'REWARD_ADDRESS not set|NODE_KEYSTORE non impostato|NODE_KEYSTORE_PASSWORD_FILE non leggibile|nessun keystore in' "$LOG"; then
   cat "$LOG" >&2
   echo "blockchain identity bootstrap regression" >&2
   exit 1
