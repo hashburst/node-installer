@@ -12,6 +12,8 @@ TEP_ENV="/etc/hashburst/hashburst-tep.env"
 NODE_ENV="/etc/hashburst/env"
 TEP_STATE="/var/lib/hashburst/tep"
 TEP_STATUS="http://127.0.0.1:47778/"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WALLET_BOOTSTRAP="$SCRIPT_DIR/hb-node-wallet-bootstrap"
 
 RENDEZVOUS_NODE_ID="${HB_TEP_BOOTSTRAP_NODE_ID:-blockchainapi.one}"
 RENDEZVOUS_IP="${HB_TEP_BOOTSTRAP_IP:-64.31.4.9}"
@@ -148,6 +150,13 @@ TEP_PUBKEY="$(python3 -c 'import json; print(json.load(open("/tmp/hb-tep-onboard
 set_env "$NODE_ENV" TEP_PUBKEY "$TEP_PUBKEY" replace
 
 if [ "$ROLE" = full ] || [ "$ROLE" = blockchain ]; then
+  # The packaged blockchain requires a persistent mining reward address. On a
+  # true first boot create exactly one encrypted keystore and password, then
+  # persist only the public address in the node environment. Reinstalls preserve
+  # an existing valid address and never rotate the wallet implicitly.
+  [ -x "$WALLET_BOOTSTRAP" ] || { echo "ERROR: wallet bootstrap helper missing: $WALLET_BOOTSTRAP" >&2; exit 1; }
+  bash "$WALLET_BOOTSTRAP"
+
   systemctl enable --now hashburst-node.service
 
   PEER_ID=""
