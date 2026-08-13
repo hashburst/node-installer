@@ -26,14 +26,18 @@ jobs:
         run: |
           bash -n install.sh
           bash -n bin/hb-tep-onboard
+          bash -n bin/hb-node-wallet-bootstrap
           bash -n ipfs-scripts/01-install-ipfs-dual-ZFS.sh
           bash -n ipfs-scripts/01-install-ipfs-dual-noZFS.sh
           bash -n ipfs-scripts/02-verify.sh
           bash -n tests/network_probe.sh
           bash -n tests/v215_installer_sandbox.sh
           bash -n tests/v215_wallet_cli_probe.sh
+          bash -n tests/v215_blockchain_bootstrap.sh
       - name: Packaged blockchain wallet CLI
         run: bash tests/v215_wallet_cli_probe.sh "$PWD"
+      - name: v2.1.5 real blockchain bootstrap
+        run: bash tests/v215_blockchain_bootstrap.sh "$PWD"
       - name: Legacy release tests
         run: |
           python tests/v2.1.2_release_regression.py
