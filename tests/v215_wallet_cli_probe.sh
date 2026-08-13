@@ -18,33 +18,14 @@ RC=$?
 set -e
 
 printf 'wallet_cli_rc=%s\n' "$RC"
-printf '%s\n' "$OUT"
-find "$WALLET" -maxdepth 2 -type f -printf 'wallet_file=%f size=%s mode=%m\n' || true
+[ "$RC" -eq 0 ] || { printf '%s\n' "$OUT" >&2; exit "$RC"; }
 
-[ "$RC" -eq 0 ] || exit "$RC"
+KEYSTORE="$(find "$WALLET" -maxdepth 1 -type f -name 'UTC--*' -print -quit)"
+[ -n "$KEYSTORE" ]
+[ "$(find "$WALLET" -maxdepth 1 -type f -name 'UTC--*' | wc -l)" -eq 1 ]
+[ "$(stat -c %a "$KEYSTORE")" = 600 ]
 
-ADDR="$(printf '%s\n' "$OUT" | grep -Eo '0x[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64}' | head -1 || true)"
-if [ -z "$ADDR" ]; then
-  ADDR="$(python3 - "$WALLET" <<'PY'
-import json, pathlib, re, sys
-root=pathlib.Path(sys.argv[1])
-for p in sorted(root.rglob('*.json')):
-    try:
-        d=json.loads(p.read_text())
-    except Exception:
-        continue
-    for key in ('address','Address'):
-        v=d.get(key)
-        if isinstance(v,str) and re.fullmatch(r'(?:0x)?[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64}',v):
-            print(v); raise SystemExit
-PY
-)"
-fi
-
+ADDR="$(printf '%s\n' "$OUT" | grep -Eo '0x[0-9A-Fa-f]{40}' | head -1 || true)"
 [ -n "$ADDR" ] || { echo 'wallet address not discoverable' >&2; exit 1; }
 printf 'wallet_address=%s\n' "$ADDR"
-
-echo 'binary_keystore_env_contract:'
-strings "$ROOT/bin/hashburst-node" | grep -E 'NODE_KEYSTORE|KEYSTORE.*PASS|PASSWORD.*FILE|NODE_.*PASS' | sort -u | head -50 || true
-
 echo V215_WALLET_CLI_PROBE_PASS
