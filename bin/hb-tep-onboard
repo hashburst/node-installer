@@ -12,6 +12,8 @@ TEP_ENV="/etc/hashburst/hashburst-tep.env"
 NODE_ENV="/etc/hashburst/env"
 TEP_STATE="/var/lib/hashburst/tep"
 TEP_STATUS="http://127.0.0.1:47778/"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WALLET_BOOTSTRAP="$SCRIPT_DIR/hb-node-wallet-bootstrap"
 
 RENDEZVOUS_NODE_ID="${HB_TEP_BOOTSTRAP_NODE_ID:-blockchainapi.one}"
 RENDEZVOUS_IP="${HB_TEP_BOOTSTRAP_IP:-64.31.4.9}"
@@ -22,6 +24,10 @@ RENDEZVOUS_PUBKEY="${HB_TEP_BOOTSTRAP_PUBKEY:-50506353bd0ac23aec8502e3d5ed6c0189
 [ "$(id -u)" = 0 ] || { echo "ERROR: hb-tep-onboard must run as root" >&2; exit 1; }
 [ -n "$NODE_NAME" ] || { echo "ERROR: node name is required" >&2; exit 2; }
 case "$ROLE" in full|blockchain|storage|edge) ;; *) echo "ERROR: invalid role" >&2; exit 2;; esac
+if { [ "$ROLE" = full ] || [ "$ROLE" = blockchain ]; } && [ ! -f "$WALLET_BOOTSTRAP" ]; then
+  echo "ERROR: wallet bootstrap helper missing: $WALLET_BOOTSTRAP" >&2
+  exit 1
+fi
 
 command -v systemctl >/dev/null 2>&1 || { echo "ERROR: systemd/systemctl is required" >&2; exit 1; }
 
@@ -148,6 +154,10 @@ TEP_PUBKEY="$(python3 -c 'import json; print(json.load(open("/tmp/hb-tep-onboard
 set_env "$NODE_ENV" TEP_PUBKEY "$TEP_PUBKEY" replace
 
 if [ "$ROLE" = full ] || [ "$ROLE" = blockchain ]; then
+  # The packaged blockchain requires a persistent encrypted signing/reward wallet.
+  # Bootstrap exactly one identity on first boot and preserve it on reinstall.
+  bash "$WALLET_BOOTSTRAP"
+
   systemctl enable --now hashburst-node.service
 
   PEER_ID=""

@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+NODE_ENV="${HB_NODE_ENV:-/etc/hashburst/env}"
+NODE_BIN="${HB_NODE_BIN:-/usr/local/bin/hashburst-node}"
+WALLET_DIR="${HB_WALLET_DIR:-/var/lib/hashburst/wallet}"
+PASS_FILE="${HB_WALLET_PASS_FILE:-/etc/hashburst/wallet.pass}"
+
+[ "$(id -u)" = 0 ] || [ "${HB_WALLET_ALLOW_NONROOT:-0}" = 1 ] || {
+  echo "ERROR: wallet bootstrap must run as root" >&2
+  exit 1
+}
+[ -x "$NODE_BIN" ] || { echo "ERROR: HashBurst node binary unavailable: $NODE_BIN" >&2; exit 1; }
+[ -f "$NODE_ENV" ] || { echo "ERROR: HashBurst env unavailable: $NODE_ENV" >&2; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required for wallet bootstrap" >&2; exit 1; }
+command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl required for wallet bootstrap" >&2; exit 1; }
+
+get_env() {
+  python3 - "$NODE_ENV" "$1" <<'PY'
+from pathlib import Path
+import sys
+key=sys.argv[2]
+for line in Path(sys.argv[1]).read_text(encoding='utf-8').splitlines():
+    if line.startswith(key+'='):
+        print(line.split('=',1)[1].strip())
+        break
+PY
+}
+
+set_env() {
+  python3 - "$NODE_ENV" "$1" "$2" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); key=sys.argv[2]; value=sys.argv[3]
+lines=p.read_text(encoding='utf-8').splitlines()
+out=[]; found=False
+for line in lines:
+    if line.startswith(key+'='):
+        if found:
+            continue
+        out.append(key+'='+value); found=True
+    else:
+        out.append(line)
+if not found:
+    out.append(key+'='+value)
+p.write_text('\n'.join(out)+'\n',encoding='utf-8')
+PY
+  chmod 0600 "$NODE_ENV"
+}
+
+valid_reward() {
+  python3 - "$1" <<'PY'
+import re,sys
+v=sys.argv[1]
+raise SystemExit(0 if re.fullmatch(r'(?:0x[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})',v) else 1)
+PY
+}
+
+existing="$(get_env REWARD_ADDRESS)"
+existing_keystore_dir="$(get_env NODE_KEYSTORE)"
+existing_pass="$(get_env NODE_KEYSTORE_PASSWORD_FILE)"
+
+if [ -n "$existing" ]; then
+  valid_reward "$existing" || { echo "ERROR: existing REWARD_ADDRESS is malformed; refusing replacement" >&2; exit 1; }
+  [ -n "$existing_keystore_dir" ] || { echo "ERROR: REWARD_ADDRESS exists but NODE_KEYSTORE is missing; refusing ambiguous signing identity" >&2; exit 1; }
+  [ -n "$existing_pass" ] || { echo "ERROR: REWARD_ADDRESS exists but NODE_KEYSTORE_PASSWORD_FILE is missing" >&2; exit 1; }
+  [ -d "$existing_keystore_dir" ] || { echo "ERROR: configured NODE_KEYSTORE directory does not exist" >&2; exit 1; }
+  [ -s "$existing_pass" ] || { echo "ERROR: configured NODE_KEYSTORE_PASSWORD_FILE is missing/empty" >&2; exit 1; }
+  mapfile -t configured_keystores < <(find "$existing_keystore_dir" -maxdepth 1 -type f -name 'UTC--*' -print | sort)
+  [ "${#configured_keystores[@]}" -eq 1 ] || { echo "ERROR: configured NODE_KEYSTORE must contain exactly one keystore" >&2; exit 1; }
+  chmod 0700 "$existing_keystore_dir"
+  chmod 0600 "${configured_keystores[0]}" "$existing_pass"
+  echo "Reward/signing wallet preserved: $existing"
+  exit 0
+fi
+
+install -d -m 0700 "$WALLET_DIR"
+install -d -m 0700 "$(dirname "$PASS_FILE")"
+if [ ! -s "$PASS_FILE" ]; then
+  openssl rand -hex 32 > "$PASS_FILE"
+  chmod 0600 "$PASS_FILE"
+fi
+
+mapfile -t keystores < <(find "$WALLET_DIR" -maxdepth 1 -type f -name 'UTC--*' -print | sort)
+if [ "${#keystores[@]}" -gt 1 ]; then
+  echo "ERROR: multiple reward keystores exist but REWARD_ADDRESS is missing; refusing ambiguous recovery" >&2
+  exit 1
+fi
+
+OUT=""
+if [ "${#keystores[@]}" -eq 0 ]; then
+  OUT="$($NODE_BIN wallet new --dir "$WALLET_DIR" --password-file "$PASS_FILE" 2>&1)" || {
+    rc=$?
+    printf '%s\n' "$OUT" >&2
+    echo "ERROR: HashBurst wallet creation failed" >&2
+    exit "$rc"
+  }
+  mapfile -t keystores < <(find "$WALLET_DIR" -maxdepth 1 -type f -name 'UTC--*' -print | sort)
+  [ "${#keystores[@]}" -eq 1 ] || { echo "ERROR: wallet CLI did not create exactly one keystore" >&2; exit 1; }
+fi
+
+address="$(printf '%s\n' "$OUT" | grep -Eo '0x[0-9A-Fa-f]{40}' | head -1 || true)"
+if [ -z "$address" ]; then
+  address="$(python3 - "${keystores[0]}" <<'PY'
+import json,re,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+try:
+    d=json.loads(p.read_text(encoding='utf-8'))
+except Exception:
+    d={}
+v=d.get('address') or d.get('Address') or ''
+if isinstance(v,str) and re.fullmatch(r'(?:0x)?[0-9A-Fa-f]{40}',v):
+    print(v if v.startswith('0x') else '0x'+v)
+PY
+)"
+fi
+if [ -z "$address" ]; then
+  base="$(basename "${keystores[0]}")"
+  suffix="${base##*--}"
+  if [[ "$suffix" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+    address="0x${suffix}"
+  fi
+fi
+
+[ -n "$address" ] && valid_reward "$address" || {
+  echo "ERROR: unable to recover a valid reward address from generated keystore" >&2
+  exit 1
+}
+
+# HashBurst/EVM addresses are case-insensitive at the identity level. Persist a
+# canonical lowercase representation so first boot, recovery from a UTC--
+# filename, and every reinstall produce byte-for-byte identical configuration.
+address="$(printf '%s' "$address" | tr '[:upper:]' '[:lower:]')"
+
+chmod 0700 "$WALLET_DIR"
+chmod 0600 "$PASS_FILE" "${keystores[0]}"
+set_env REWARD_ADDRESS "$address"
+set_env NODE_KEYSTORE "$WALLET_DIR"
+set_env NODE_KEYSTORE_PASSWORD_FILE "$PASS_FILE"
+echo "Reward/signing wallet ready: $address"
