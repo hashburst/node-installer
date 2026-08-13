@@ -58,16 +58,19 @@ PY
 }
 
 existing="$(get_env REWARD_ADDRESS)"
-existing_keystore="$(get_env NODE_KEYSTORE)"
+existing_keystore_dir="$(get_env NODE_KEYSTORE)"
 existing_pass="$(get_env NODE_KEYSTORE_PASSWORD_FILE)"
 
 if [ -n "$existing" ]; then
   valid_reward "$existing" || { echo "ERROR: existing REWARD_ADDRESS is malformed; refusing replacement" >&2; exit 1; }
-  [ -n "$existing_keystore" ] || { echo "ERROR: REWARD_ADDRESS exists but NODE_KEYSTORE is missing; refusing ambiguous signing identity" >&2; exit 1; }
+  [ -n "$existing_keystore_dir" ] || { echo "ERROR: REWARD_ADDRESS exists but NODE_KEYSTORE is missing; refusing ambiguous signing identity" >&2; exit 1; }
   [ -n "$existing_pass" ] || { echo "ERROR: REWARD_ADDRESS exists but NODE_KEYSTORE_PASSWORD_FILE is missing" >&2; exit 1; }
-  [ -f "$existing_keystore" ] || { echo "ERROR: configured NODE_KEYSTORE does not exist" >&2; exit 1; }
+  [ -d "$existing_keystore_dir" ] || { echo "ERROR: configured NODE_KEYSTORE directory does not exist" >&2; exit 1; }
   [ -s "$existing_pass" ] || { echo "ERROR: configured NODE_KEYSTORE_PASSWORD_FILE is missing/empty" >&2; exit 1; }
-  chmod 0600 "$existing_keystore" "$existing_pass"
+  mapfile -t configured_keystores < <(find "$existing_keystore_dir" -maxdepth 1 -type f -name 'UTC--*' -print | sort)
+  [ "${#configured_keystores[@]}" -eq 1 ] || { echo "ERROR: configured NODE_KEYSTORE must contain exactly one keystore" >&2; exit 1; }
+  chmod 0700 "$existing_keystore_dir"
+  chmod 0600 "${configured_keystores[0]}" "$existing_pass"
   echo "Reward/signing wallet preserved: $existing"
   exit 0
 fi
@@ -126,9 +129,9 @@ fi
   exit 1
 }
 
-keystore="${keystores[0]}"
-chmod 0600 "$PASS_FILE" "$keystore"
+chmod 0700 "$WALLET_DIR"
+chmod 0600 "$PASS_FILE" "${keystores[0]}"
 set_env REWARD_ADDRESS "$address"
-set_env NODE_KEYSTORE "$keystore"
+set_env NODE_KEYSTORE "$WALLET_DIR"
 set_env NODE_KEYSTORE_PASSWORD_FILE "$PASS_FILE"
 echo "Reward/signing wallet ready: $address"
