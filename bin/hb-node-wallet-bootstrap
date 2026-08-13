@@ -16,15 +16,37 @@ PASS_FILE="${HB_WALLET_PASS_FILE:-/etc/hashburst/wallet.pass}"
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required for wallet bootstrap" >&2; exit 1; }
 command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl required for wallet bootstrap" >&2; exit 1; }
 
-get_reward() {
-  python3 - "$NODE_ENV" <<'PY'
+get_env() {
+  python3 - "$NODE_ENV" "$1" <<'PY'
 from pathlib import Path
 import sys
+key=sys.argv[2]
 for line in Path(sys.argv[1]).read_text(encoding='utf-8').splitlines():
-    if line.startswith('REWARD_ADDRESS='):
+    if line.startswith(key+'='):
         print(line.split('=',1)[1].strip())
         break
 PY
+}
+
+set_env() {
+  python3 - "$NODE_ENV" "$1" "$2" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); key=sys.argv[2]; value=sys.argv[3]
+lines=p.read_text(encoding='utf-8').splitlines()
+out=[]; found=False
+for line in lines:
+    if line.startswith(key+'='):
+        if found:
+            continue
+        out.append(key+'='+value); found=True
+    else:
+        out.append(line)
+if not found:
+    out.append(key+'='+value)
+p.write_text('\n'.join(out)+'\n',encoding='utf-8')
+PY
+  chmod 0600 "$NODE_ENV"
 }
 
 valid_reward() {
@@ -35,31 +57,18 @@ raise SystemExit(0 if re.fullmatch(r'(?:0x[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})',v) e
 PY
 }
 
-set_reward() {
-  python3 - "$NODE_ENV" "$1" <<'PY'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1]); value=sys.argv[2]
-lines=p.read_text(encoding='utf-8').splitlines()
-out=[]; found=False
-for line in lines:
-    if line.startswith('REWARD_ADDRESS='):
-        if found:
-            continue
-        out.append('REWARD_ADDRESS='+value); found=True
-    else:
-        out.append(line)
-if not found:
-    out.append('REWARD_ADDRESS='+value)
-p.write_text('\n'.join(out)+'\n',encoding='utf-8')
-PY
-  chmod 0600 "$NODE_ENV"
-}
+existing="$(get_env REWARD_ADDRESS)"
+existing_keystore="$(get_env NODE_KEYSTORE)"
+existing_pass="$(get_env NODE_KEYSTORE_PASSWORD_FILE)"
 
-existing="$(get_reward)"
 if [ -n "$existing" ]; then
   valid_reward "$existing" || { echo "ERROR: existing REWARD_ADDRESS is malformed; refusing replacement" >&2; exit 1; }
-  echo "Reward wallet preserved: $existing"
+  [ -n "$existing_keystore" ] || { echo "ERROR: REWARD_ADDRESS exists but NODE_KEYSTORE is missing; refusing ambiguous signing identity" >&2; exit 1; }
+  [ -n "$existing_pass" ] || { echo "ERROR: REWARD_ADDRESS exists but NODE_KEYSTORE_PASSWORD_FILE is missing" >&2; exit 1; }
+  [ -f "$existing_keystore" ] || { echo "ERROR: configured NODE_KEYSTORE does not exist" >&2; exit 1; }
+  [ -s "$existing_pass" ] || { echo "ERROR: configured NODE_KEYSTORE_PASSWORD_FILE is missing/empty" >&2; exit 1; }
+  chmod 0600 "$existing_keystore" "$existing_pass"
+  echo "Reward/signing wallet preserved: $existing"
   exit 0
 fi
 
@@ -117,6 +126,9 @@ fi
   exit 1
 }
 
-chmod 0600 "$PASS_FILE" "${keystores[0]}"
-set_reward "$address"
-echo "Reward wallet ready: $address"
+keystore="${keystores[0]}"
+chmod 0600 "$PASS_FILE" "$keystore"
+set_env REWARD_ADDRESS "$address"
+set_env NODE_KEYSTORE "$keystore"
+set_env NODE_KEYSTORE_PASSWORD_FILE "$PASS_FILE"
+echo "Reward/signing wallet ready: $address"
