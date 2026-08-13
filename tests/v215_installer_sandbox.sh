@@ -16,7 +16,7 @@ cleanup() {
   rm -rf "$FAKE" "$STORAGE"
   rm -f "$UFW_LOG" "$SYS_LOG" /tmp/hb-tep-onboard-status.json
   rm -f /tmp/swarm.key /tmp/list.json
-  rm -rf /etc/hashburst /var/lib/hashburst/tep /var/lib/hashburst/replication
+  rm -rf /etc/hashburst /var/lib/hashburst
   rm -rf /opt/hashburst-tep /opt/hashburst-files /opt/hashburst/replication
   rm -f /usr/local/bin/hashburst-node
   rm -f /etc/systemd/system/hashburst-*.service /etc/systemd/system/ipfs-private.service /etc/systemd/system/ipfs-public.service
@@ -58,6 +58,9 @@ case "\$url" in
     ;;
   http://127.0.0.1:8009/api/health)
     grep -q '^TEP_PUBKEY=$PUBKEY$' /etc/hashburst/env
+    grep -q '^REWARD_ADDRESS=0x[0-9A-Fa-f]\{40\}$' /etc/hashburst/env
+    grep -q '^NODE_KEYSTORE=/var/lib/hashburst/wallet$' /etc/hashburst/env
+    grep -q '^NODE_KEYSTORE_PASSWORD_FILE=/etc/hashburst/wallet.pass$' /etc/hashburst/env
     printf '{"status":"ok","peerID":"%s","chainId":1337}\n' "$PEER_ID"
     ;;
   http://127.0.0.1:8091/health)
@@ -154,6 +157,14 @@ grep -q '^HB_STORAGE_ROLE=edge$' /etc/hashburst/env
 grep -q '^HB_FILES_BIND=127.0.0.1$' /etc/hashburst/env
 grep -q '^HB_IPFS_PRIVATE_API=http://127.0.0.1:5011$' /etc/hashburst/env
 grep -q "^TEP_PUBKEY=$PUBKEY$" /etc/hashburst/env
+grep -q '^REWARD_ADDRESS=0x[0-9A-Fa-f]\{40\}$' /etc/hashburst/env
+grep -q '^NODE_KEYSTORE=/var/lib/hashburst/wallet$' /etc/hashburst/env
+grep -q '^NODE_KEYSTORE_PASSWORD_FILE=/etc/hashburst/wallet.pass$' /etc/hashburst/env
+[ "$(stat -c %a /var/lib/hashburst/wallet)" = 700 ]
+[ "$(stat -c %a /etc/hashburst/wallet.pass)" = 600 ]
+WALLET_FILE="$(find /var/lib/hashburst/wallet -maxdepth 1 -type f -name 'UTC--*' -print -quit)"
+[ -n "$WALLET_FILE" ]
+[ "$(stat -c %a "$WALLET_FILE")" = 600 ]
 grep -q '^HB_TEP_NODE_ID=sandbox-edge$' /etc/hashburst/hashburst-tep.env
 grep -q "^HB_TEP_PEER_ID=$PEER_ID$" /etc/hashburst/hashburst-tep.env
 grep -q '^HB_TEP_RELAY_ENABLED=0$' /etc/hashburst/hashburst-tep.env
@@ -164,8 +175,12 @@ grep -q 'delete allow 8091/tcp' "$UFW_LOG"
 
 ADMIN1="$(awk -F= '/^HB_ADMIN_SECRET=/{print $2}' /etc/hashburst/env)"
 PANEL1="$(awk -F= '/^HB_PANEL_SECRET=/{print $2}' /etc/hashburst/env)"
+REWARD1="$(awk -F= '/^REWARD_ADDRESS=/{print $2}' /etc/hashburst/env)"
+WALLET_SHA1="$(sha256sum "$WALLET_FILE" | awk '{print $1}')"
+PASS_SHA1="$(sha256sum /etc/hashburst/wallet.pass | awk '{print $1}')"
 [ -n "$ADMIN1" ]
 [ -n "$PANEL1" ]
+[ -n "$REWARD1" ]
 
 echo "SANDBOX REINSTALL NORMALIZATION"
 sed -i 's/^HB_TEP_RELAY_ENABLED=.*/HB_TEP_RELAY_ENABLED=1/' /etc/hashburst/hashburst-tep.env
@@ -176,6 +191,9 @@ grep -q '^HB_TEP_RELAY_ENABLED=0$' /etc/hashburst/hashburst-tep.env
 grep -q "^HB_TEP_TRUSTED_RENDEZVOUS=$RENDEZVOUS$" /etc/hashburst/hashburst-tep.env
 [ "$(awk -F= '/^HB_ADMIN_SECRET=/{print $2}' /etc/hashburst/env)" = "$ADMIN1" ]
 [ "$(awk -F= '/^HB_PANEL_SECRET=/{print $2}' /etc/hashburst/env)" = "$PANEL1" ]
+[ "$(awk -F= '/^REWARD_ADDRESS=/{print $2}' /etc/hashburst/env)" = "$REWARD1" ]
+[ "$(sha256sum "$WALLET_FILE" | awk '{print $1}')" = "$WALLET_SHA1" ]
+[ "$(sha256sum /etc/hashburst/wallet.pass | awk '{print $1}')" = "$PASS_SHA1" ]
 [ "$(sha256sum /etc/hashburst/swarm.key | awk '{print $1}')" = "$SWARM_SHA" ]
 
 echo "SANDBOX SWARM KEY MISMATCH"
