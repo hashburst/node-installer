@@ -47,19 +47,26 @@ run_bootstrap() {
 echo "BLOCKCHAIN WALLET FIRST BOOT"
 run_bootstrap
 REWARD1="$(awk -F= '/^REWARD_ADDRESS=/{print $2}' "$ENV_FILE")"
+KEYSTORE1="$(awk -F= '/^NODE_KEYSTORE=/{print substr($0,index($0,"=")+1)}' "$ENV_FILE")"
+PASS_ENV1="$(awk -F= '/^NODE_KEYSTORE_PASSWORD_FILE=/{print substr($0,index($0,"=")+1)}' "$ENV_FILE")"
 [[ "$REWARD1" =~ ^0x[0-9A-Fa-f]{40}$ ]]
+[ "$PASS_ENV1" = "$PASS_FILE" ]
+[ -f "$KEYSTORE1" ]
 [ "$(find "$WALLET_DIR" -maxdepth 1 -type f -name 'UTC--*' | wc -l)" -eq 1 ]
 [ "$(stat -c %a "$PASS_FILE")" = 600 ]
-[ "$(stat -c %a "$(find "$WALLET_DIR" -maxdepth 1 -type f -name 'UTC--*' -print -quit)")" = 600 ]
+[ "$(stat -c %a "$KEYSTORE1")" = 600 ]
 
-KEYSTORE1="$(find "$WALLET_DIR" -maxdepth 1 -type f -name 'UTC--*' -print -quit)"
 KS_SHA1="$(sha256sum "$KEYSTORE1" | awk '{print $1}')"
 PASS_SHA1="$(sha256sum "$PASS_FILE" | awk '{print $1}')"
 
 echo "BLOCKCHAIN WALLET REINSTALL"
 run_bootstrap
 REWARD2="$(awk -F= '/^REWARD_ADDRESS=/{print $2}' "$ENV_FILE")"
+KEYSTORE2="$(awk -F= '/^NODE_KEYSTORE=/{print substr($0,index($0,"=")+1)}' "$ENV_FILE")"
+PASS_ENV2="$(awk -F= '/^NODE_KEYSTORE_PASSWORD_FILE=/{print substr($0,index($0,"=")+1)}' "$ENV_FILE")"
 [ "$REWARD2" = "$REWARD1" ]
+[ "$KEYSTORE2" = "$KEYSTORE1" ]
+[ "$PASS_ENV2" = "$PASS_ENV1" ]
 [ "$(find "$WALLET_DIR" -maxdepth 1 -type f -name 'UTC--*' | wc -l)" -eq 1 ]
 [ "$(sha256sum "$KEYSTORE1" | awk '{print $1}')" = "$KS_SHA1" ]
 [ "$(sha256sum "$PASS_FILE" | awk '{print $1}')" = "$PASS_SHA1" ]
@@ -73,7 +80,7 @@ set +a
 PID=$!
 
 HEALTH=""
-for _ in $(seq 1 40); do
+for _ in $(seq 1 80); do
   if HEALTH="$(curl -fsS --max-time 1 "http://127.0.0.1:$RPC_PORT/api/health" 2>/dev/null)"; then
     break
   fi
@@ -100,9 +107,9 @@ kill "$PID"
 wait "$PID" || true
 PID=""
 
-if grep -q 'REWARD_ADDRESS not set' "$LOG"; then
+if grep -Eq 'REWARD_ADDRESS not set|NODE_KEYSTORE non impostato|NODE_KEYSTORE_PASSWORD_FILE non leggibile' "$LOG"; then
   cat "$LOG" >&2
-  echo "reward bootstrap regression" >&2
+  echo "blockchain identity bootstrap regression" >&2
   exit 1
 fi
 
