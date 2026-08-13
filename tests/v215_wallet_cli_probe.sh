@@ -43,4 +43,8 @@ fi
 
 [ -n "$ADDR" ] || { echo 'wallet address not discoverable' >&2; exit 1; }
 printf 'wallet_address=%s\n' "$ADDR"
+
+echo 'binary_keystore_env_contract:'
+strings "$ROOT/bin/hashburst-node" | grep -E 'NODE_KEYSTORE|KEYSTORE.*PASS|PASSWORD.*FILE|NODE_.*PASS' | sort -u | head -50 || true
+
 echo V215_WALLET_CLI_PROBE_PASS
