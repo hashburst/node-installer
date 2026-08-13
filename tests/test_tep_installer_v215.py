@@ -4,6 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = (ROOT / "bin" / "hb-tep-onboard").read_text(encoding="utf-8")
+WALLET = (ROOT / "bin" / "hb-node-wallet-bootstrap").read_text(encoding="utf-8")
 INSTALL = (ROOT / "install.sh").read_text(encoding="utf-8")
 SERVICE = (ROOT / "systemd" / "hashburst-tep.service").read_text(encoding="utf-8")
 RUNTIME = (ROOT / "tep" / "hb_tep_runtime.py").read_text(encoding="utf-8")
@@ -24,6 +25,18 @@ class TepInstallerV215Tests(unittest.TestCase):
         self.assertIn("HB_TEP_PEER_ID", SCRIPT)
         self.assertIn("TEP_PUBKEY", SCRIPT)
         self.assertIn("systemctl enable --now hashburst-node.service", SCRIPT)
+
+    def test_blockchain_wallet_and_signing_identity_bootstrap(self):
+        self.assertIn('WALLET_BOOTSTRAP="$SCRIPT_DIR/hb-node-wallet-bootstrap"', SCRIPT)
+        self.assertIn('bash "$WALLET_BOOTSTRAP"', SCRIPT)
+        self.assertIn('REWARD_ADDRESS', WALLET)
+        self.assertIn('NODE_KEYSTORE', WALLET)
+        self.assertIn('NODE_KEYSTORE_PASSWORD_FILE', WALLET)
+        self.assertIn('/var/lib/hashburst/wallet', WALLET)
+        self.assertIn('/etc/hashburst/wallet.pass', WALLET)
+        self.assertIn('wallet new --dir', WALLET)
+        self.assertIn('multiple reward keystores exist', WALLET)
+        self.assertIn('Reward/signing wallet preserved', WALLET)
 
     def test_nat_bootstrap_contains_only_public_rendezvous_identity(self):
         self.assertIn("64.31.4.9", SCRIPT)
