@@ -129,6 +129,11 @@ fi
   exit 1
 }
 
+# HashBurst/EVM addresses are case-insensitive at the identity level. Persist a
+# canonical lowercase representation so first boot, recovery from a UTC--
+# filename, and every reinstall produce byte-for-byte identical configuration.
+address="$(printf '%s' "$address" | tr '[:upper:]' '[:lower:]')"
+
 chmod 0700 "$WALLET_DIR"
 chmod 0600 "$PASS_FILE" "${keystores[0]}"
 set_env REWARD_ADDRESS "$address"
