@@ -26,6 +26,25 @@ class TepInstallerV215Tests(unittest.TestCase):
         self.assertIn("TEP_PUBKEY", SCRIPT)
         self.assertIn("systemctl enable --now hashburst-node.service", SCRIPT)
 
+    def test_running_blockchain_node_reloads_environment_on_reinstall(self):
+        self.assertIn('NODE_WAS_ACTIVE="no"', SCRIPT)
+        self.assertIn('systemctl is-active --quiet hashburst-node.service', SCRIPT)
+        self.assertIn('if [ "$NODE_WAS_ACTIVE" = "yes" ]; then', SCRIPT)
+        self.assertIn('systemctl restart hashburst-node.service', SCRIPT)
+        self.assertIn('systemctl enable --now hashburst-node.service', SCRIPT)
+        self.assertLess(
+            SCRIPT.index('set_env "$NODE_ENV" TEP_PUBKEY "$TEP_PUBKEY" replace'),
+            SCRIPT.index('systemctl restart hashburst-node.service'),
+        )
+        self.assertLess(
+            SCRIPT.index('set_env "$NODE_ENV" BOOTSTRAP_PEERS "$BLOCKCHAIN_BOOTSTRAP" if-empty'),
+            SCRIPT.index('systemctl restart hashburst-node.service'),
+        )
+        self.assertLess(
+            SCRIPT.index('bash "$WALLET_BOOTSTRAP"'),
+            SCRIPT.index('systemctl restart hashburst-node.service'),
+        )
+
     def test_blockchain_wallet_and_signing_identity_bootstrap(self):
         self.assertIn('WALLET_BOOTSTRAP="$SCRIPT_DIR/hb-node-wallet-bootstrap"', SCRIPT)
         self.assertIn('bash "$WALLET_BOOTSTRAP"', SCRIPT)
