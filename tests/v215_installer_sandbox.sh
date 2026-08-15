@@ -7,6 +7,7 @@ FAKE="$(mktemp -d /tmp/hb-v215-fake.XXXXXX)"
 STORAGE="/tmp/hb-v215-sandbox-storage"
 UFW_LOG="/tmp/hb-v215-ufw.log"
 SYS_LOG="/tmp/hb-v215-systemctl.log"
+NODE_STATE="/tmp/hb-v215-node-active"
 PEER_ID="12D3KooWSandboxV215StablePeerIdentity"
 PUBKEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 RENDEZVOUS="12D3KooWCiH3B8E84UNsop5epp7vNXfC6oSg2iyB4wjyCm6a84ow"
@@ -14,7 +15,7 @@ RENDEZVOUS="12D3KooWCiH3B8E84UNsop5epp7vNXfC6oSg2iyB4wjyCm6a84ow"
 cleanup() {
   set +e
   rm -rf "$FAKE" "$STORAGE"
-  rm -f "$UFW_LOG" "$SYS_LOG" /tmp/hb-tep-onboard-status.json
+  rm -f "$UFW_LOG" "$SYS_LOG" "$NODE_STATE" /tmp/hb-tep-onboard-status.json
   rm -f /tmp/swarm.key /tmp/list.json
   rm -rf /etc/hashburst /var/lib/hashburst
   rm -rf /opt/hashburst-tep /opt/hashburst-files /opt/hashburst/replication
@@ -30,10 +31,24 @@ cat > "$FAKE/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >> /tmp/hb-v215-systemctl.log
+target="${@: -1}"
 if [ "${1:-}" = "is-active" ]; then
-  case "${@: -1}" in
+  case "$target" in
+    hashburst-node|hashburst-node.service)
+      [ -f /tmp/hb-v215-node-active ] && exit 0 || exit 1
+      ;;
     ipfs|ipfs.service|ipfs-public|ipfs-public.service) exit 1 ;;
     *) exit 0 ;;
+  esac
+fi
+if [ "${1:-}" = "enable" ] && [ "${2:-}" = "--now" ]; then
+  case "$target" in
+    hashburst-node|hashburst-node.service) touch /tmp/hb-v215-node-active ;;
+  esac
+fi
+if [ "${1:-}" = "restart" ]; then
+  case "$target" in
+    hashburst-node|hashburst-node.service) touch /tmp/hb-v215-node-active ;;
   esac
 fi
 exit 0
@@ -146,7 +161,14 @@ ARGS=(
 cd "$ROOT"
 
 echo "SANDBOX FRESH INSTALL"
+rm -f "$NODE_STATE"
+: > "$SYS_LOG"
 ./install.sh "${ARGS[@]}"
+
+# A fresh node must take the start path, not the reinstall restart path.
+grep -q '^enable --now hashburst-node.service$' "$SYS_LOG"
+! grep -q '^restart hashburst-node.service$' "$SYS_LOG"
+[ -f "$NODE_STATE" ]
 
 [ "$(sha256sum /etc/hashburst/swarm.key | awk '{print $1}')" = "$SWARM_SHA" ]
 grep -q '^VERSION="2.1.5"$' install.sh
@@ -176,22 +198,41 @@ grep -q 'delete allow 8091/tcp' "$UFW_LOG"
 ADMIN1="$(awk -F= '/^HB_ADMIN_SECRET=/{print $2}' /etc/hashburst/env)"
 PANEL1="$(awk -F= '/^HB_PANEL_SECRET=/{print $2}' /etc/hashburst/env)"
 REWARD1="$(awk -F= '/^REWARD_ADDRESS=/{print $2}' /etc/hashburst/env)"
+TEP_NODE_ID1="$(awk -F= '/^HB_TEP_NODE_ID=/{print $2}' /etc/hashburst/hashburst-tep.env)"
+TEP_PEER_ID1="$(awk -F= '/^HB_TEP_PEER_ID=/{print $2}' /etc/hashburst/hashburst-tep.env)"
+TEP_PUBKEY1="$(awk -F= '/^TEP_PUBKEY=/{print $2}' /etc/hashburst/env)"
 WALLET_SHA1="$(sha256sum "$WALLET_FILE" | awk '{print $1}')"
 PASS_SHA1="$(sha256sum /etc/hashburst/wallet.pass | awk '{print $1}')"
 [ -n "$ADMIN1" ]
 [ -n "$PANEL1" ]
 [ -n "$REWARD1" ]
+[ -n "$TEP_NODE_ID1" ]
+[ -n "$TEP_PEER_ID1" ]
+[ -n "$TEP_PUBKEY1" ]
 
 echo "SANDBOX REINSTALL NORMALIZATION"
 sed -i 's/^HB_TEP_RELAY_ENABLED=.*/HB_TEP_RELAY_ENABLED=1/' /etc/hashburst/hashburst-tep.env
 sed -i 's/^HB_TEP_TRUSTED_RENDEZVOUS=.*/HB_TEP_TRUSTED_RENDEZVOUS=stale-peer/' /etc/hashburst/hashburst-tep.env
+: > "$SYS_LOG"
 ./install.sh "${ARGS[@]}"
+
+# A running node must reload EnvironmentFile through restart during onboarding.
+grep -q '^restart hashburst-node.service$' "$SYS_LOG"
+! grep -q '^enable --now hashburst-node.service$' "$SYS_LOG"
+RESTART_LINE="$(grep -n '^restart hashburst-node.service$' "$SYS_LOG" | head -1 | cut -d: -f1)"
+POST_INSTALL_ENABLE_LINE="$(grep -n '^enable --now hashburst-node$' "$SYS_LOG" | head -1 | cut -d: -f1)"
+[ -n "$RESTART_LINE" ]
+[ -n "$POST_INSTALL_ENABLE_LINE" ]
+[ "$RESTART_LINE" -lt "$POST_INSTALL_ENABLE_LINE" ]
 
 grep -q '^HB_TEP_RELAY_ENABLED=0$' /etc/hashburst/hashburst-tep.env
 grep -q "^HB_TEP_TRUSTED_RENDEZVOUS=$RENDEZVOUS$" /etc/hashburst/hashburst-tep.env
 [ "$(awk -F= '/^HB_ADMIN_SECRET=/{print $2}' /etc/hashburst/env)" = "$ADMIN1" ]
 [ "$(awk -F= '/^HB_PANEL_SECRET=/{print $2}' /etc/hashburst/env)" = "$PANEL1" ]
 [ "$(awk -F= '/^REWARD_ADDRESS=/{print $2}' /etc/hashburst/env)" = "$REWARD1" ]
+[ "$(awk -F= '/^HB_TEP_NODE_ID=/{print $2}' /etc/hashburst/hashburst-tep.env)" = "$TEP_NODE_ID1" ]
+[ "$(awk -F= '/^HB_TEP_PEER_ID=/{print $2}' /etc/hashburst/hashburst-tep.env)" = "$TEP_PEER_ID1" ]
+[ "$(awk -F= '/^TEP_PUBKEY=/{print $2}' /etc/hashburst/env)" = "$TEP_PUBKEY1" ]
 [ "$(sha256sum "$WALLET_FILE" | awk '{print $1}')" = "$WALLET_SHA1" ]
 [ "$(sha256sum /etc/hashburst/wallet.pass | awk '{print $1}')" = "$PASS_SHA1" ]
 [ "$(sha256sum /etc/hashburst/swarm.key | awk '{print $1}')" = "$SWARM_SHA" ]
