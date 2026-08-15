@@ -155,6 +155,15 @@ TEP_PUBKEY="$(python3 -c 'import json; print(json.load(open("/tmp/hb-tep-onboard
 set_env "$NODE_ENV" TEP_PUBKEY "$TEP_PUBKEY" replace
 
 if [ "$ROLE" = full ] || [ "$ROLE" = blockchain ]; then
+  # Remember whether this is an upgrade/reinstall of an already-running node.
+  # systemd does not reload EnvironmentFile values for an active process, so a
+  # running blockchain node must be restarted after TEP_PUBKEY/BOOTSTRAP_PEERS
+  # are written or it may continue registering stale/missing TEP identity data.
+  NODE_WAS_ACTIVE="no"
+  if systemctl is-active --quiet hashburst-node.service; then
+    NODE_WAS_ACTIVE="yes"
+  fi
+
   # Non-rendezvous blockchain nodes must join the canonical chain before their
   # NODE_REGISTRATION can propagate. Preserve an operator-supplied bootstrap.
   if [ "$NODE_NAME" != "$RENDEZVOUS_NODE_ID" ]; then
@@ -171,7 +180,11 @@ if [ "$ROLE" = full ] || [ "$ROLE" = blockchain ]; then
   # Bootstrap exactly one identity on first boot and preserve it on reinstall.
   bash "$WALLET_BOOTSTRAP"
 
-  systemctl enable --now hashburst-node.service
+  if [ "$NODE_WAS_ACTIVE" = "yes" ]; then
+    systemctl restart hashburst-node.service
+  else
+    systemctl enable --now hashburst-node.service
+  fi
 
   PEER_ID=""
   for _ in $(seq 1 30); do
