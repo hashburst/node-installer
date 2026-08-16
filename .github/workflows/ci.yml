@@ -21,7 +21,7 @@ jobs:
         run: |
           python -m py_compile aggregator/*.py hbfiles/*.py replication/*.py integrations/explorer/patch_hashburst_explorer.py
           python -m py_compile tep/*.py patched/hb_tep.py tools/hb_tep_packet_scan.py tools/tep_staging_network_test.py
-          python -m py_compile tests/test_tep_installer_v215.py tests/test_tep_nat_runtime_v215.py tests/v2.1.5_release_regression.py
+          python -m py_compile tests/test_tep_installer_v215.py tests/test_tep_nat_runtime_v215.py tests/v2.1.5_release_regression.py tests/v2.1.6_release_regression.py
       - name: Shell syntax
         run: |
           bash -n install.sh
@@ -75,3 +75,5 @@ jobs:
         run: python -W error::ResourceWarning -m unittest -v tests.test_tep_nat_runtime_v215
       - name: v2.1.5 release contract
         run: python tests/v2.1.5_release_regression.py
+      - name: v2.1.6 release preparation contract
+        run: python tests/v2.1.6_release_regression.py
