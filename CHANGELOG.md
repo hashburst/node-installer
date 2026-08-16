@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.6 - Unreleased
+- Reload the running blockchain node environment during TEP reinstall/upgrade so updated `TEP_PUBKEY` and bootstrap settings are consumed before renewed node registration.
+- Preserve the existing blockchain Peer ID, reward/signing wallet, TEP X25519 identity, private-IPFS swarm identity, admin/panel secrets and relay policy across the reinstall path.
+- Distinguish fresh-install and reinstall service lifecycle: fresh nodes use `systemctl enable --now hashburst-node.service`; already-running nodes use a controlled `systemctl restart hashburst-node.service` after identity/environment preparation.
+- Extend the v2.1.5 installer sandbox to model the blockchain service state explicitly and verify both lifecycle branches and identity preservation.
+- Keep AES-256-GCM/X25519, heartbeat wire format, NAT routing, relay policy, HB-Files and blockchain P2P behavior unchanged.
+- Add v2.1.6 release-preparation CI gates while retaining the complete v2.1.5 contract and NAT regression suite.
+- Field validation on NAT/dynamic-IP `node-7` remains a release-blocking gate before the installer version is promoted and any `v2.1.6` tag is created.
+
 ## 2.1.5
 - Integrate the production-validated HB-TEP-APP/1 transport into the canonical installer.
 - Add `bin/hb-tep-onboard` for idempotent TEP activation and full-node enrollment.
