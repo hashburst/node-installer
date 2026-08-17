@@ -1,6 +1,6 @@
 # HashBurst Node Installer v2.1.6
 
-Status: release ready after completed field rollout; merge/tag gates remain.
+Status: RELEASED.
 
 Final field validation: PASS.
 Network rollout validation: PASS.
@@ -86,14 +86,14 @@ Completed before merge:
 
 ## Version promotion and release
 
-The canonical installer is `VERSION="2.1.6"` on the release branch.
+The canonical installer is `VERSION="2.1.6"` on `main`.
 
-Release sequence:
+Release completed successfully:
 
-1. final review PR #9 and PR #10;
-2. merge PR #9 to `main`;
-3. retarget PR #10 to `main` and verify exact diff/CI;
-4. merge PR #10;
-5. require green main-branch CI;
-6. create tag `v2.1.6` from the verified main commit;
-7. publish the GitHub release/archive with these notes.
+- PR #9 merged to `main`;
+- PR #10 retargeted, reviewed and merged to `main`;
+- final `main` commit verified at `d031185e83dbbce805d31ae9317d0c8398a3cc90`;
+- main-branch CI completed successfully;
+- annotated tag `v2.1.6` created from the verified main commit;
+- GitHub Release `v2.1.6` published;
+- GitHub source archives `.zip` and `.tar.gz` are available from the release.
