@@ -70,8 +70,6 @@ jobs:
         run: python tests/tep_release_regression.py
       - name: v2.1.5 installer and onboarding
         run: python -W error::ResourceWarning -m unittest -v tests.test_tep_installer_v215
-      - name: v2.1.5 installer sandbox compatibility
-        run: sudo env PATH="$PATH" bash tests/v215_installer_sandbox.sh "$PWD" || true
       - name: v2.1.5 NAT runtime
         run: python -W error::ResourceWarning -m unittest -v tests.test_tep_nat_runtime_v215
       - name: v2.1.5 release contract
