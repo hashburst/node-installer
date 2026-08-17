@@ -1,4 +1,4 @@
-# HashBurst — Node Installer v2.1.5
+# HashBurst — Node Installer v2.1.6
 
 Self-contained HashBurst installer for blockchain, HB-Files sovereign storage,
 private IPFS federation, HB-TEP encrypted transport, replication components and
@@ -7,24 +7,29 @@ optional mining participation.
 The installer is intended to produce a repeatable node from a published release.
 **No local Python patching is part of the installation procedure.**
 
-## v2.1.5 highlights
+## v2.1.6 highlights
 
 - canonical HB-TEP-APP/1 daemon and local IPC
 - X25519 + AES-256-GCM TEP transport
 - automatic, idempotent TEP onboarding for `full` / `blockchain` nodes
 - stable blockchain Peer ID bound to TEP identity
 - TEP public key inserted before blockchain `NODE_REGISTRATION`
-- blockchain-DNS peer discovery with a public rendezvous bootstrap
+- blockchain-DNS peer discovery with public rendezvous bootstrap
+- registered NAT peers reconciled from authoritative `/api/nodes`
+- authenticated NAT coordinates preserved across blockchain peer-sync replacement
+- heartbeat authentication fails closed when stable X25519 identity is unavailable
+- running blockchain nodes are restarted only after TEP/bootstrap environment preparation so systemd reloads `EnvironmentFile`
 - NAT/edge relay trust configuration while relay service remains disabled by default
 - storage aggregator TEP transport with separate routing and storage-summary identities
 - production flat-layout support for `hb_aggregator.py` + `hb_tep_adapter.py`
-- durable replication N=3 / M=2 safety inherited from v2.1.4
+- durable replication N=3 / M=2 safety inherited from earlier releases
 - Kubo private RPC remains localhost-only
 - edge storage never contributes committable/sellable capacity
+- five-node field rollout validated with all TEP peers online
 
 ## Supported installation model
 
-The supported production target is Ubuntu x86_64 with root access, Python 3,
+The supported production target is Ubuntu x86_64 with root or sudo access, Python 3,
 `curl`, systemd and Kubo/IPFS as installed or managed by this package.
 
 A machine can install all HashBurst software from the public GitHub release, but
@@ -67,6 +72,10 @@ Internet. Remote storage summary access is expected to use HB-TEP. The TEP
 rendezvous bootstrap contains only public identity material (IP, peer ID,
 X25519 public key); no private federation secret is embedded in the package.
 
+v2.1.6 additionally reconciles registered nodes from `/api/nodes` when a NAT node
+is omitted by `/api/tep/peers`, while preserving an authenticated public NAT
+endpoint already observed at runtime.
+
 ## What `install.sh` configures
 
 1. validates role, storage backend and private-network prerequisites
@@ -81,7 +90,8 @@ X25519 public key); no private federation secret is embedded in the package.
 10. requires Python `cryptography` with X25519/AES-GCM
 11. preserves existing TEP keys and refuses silent stable-peer-ID replacement
 12. for full/blockchain nodes, completes TEP enrollment using the local blockchain Peer ID
-13. verifies the relevant services before reporting installation complete
+13. on reinstall, reloads the blockchain process only after updated TEP/bootstrap environment preparation
+14. verifies the relevant services before reporting installation complete
 
 ## TEP security defaults
 
@@ -93,6 +103,7 @@ X25519 public key); no private federation secret is embedded in the package.
 - relay capability: disabled by default
 - trusted rendezvous: explicitly configured by stable peer ID
 - application requests require pre-registered peer ID + X25519 public key
+- heartbeat authentication requires stable X25519 identity and is fail-closed
 - replay protection and authenticated routing are fail-closed
 - the local IPC does not accept arbitrary URLs, ports, methods or headers
 
@@ -120,7 +131,7 @@ increase sellable capacity.
 
 ## Durable replication
 
-The v2.1.4 replication lifecycle remains part of v2.1.5:
+The replication lifecycle introduced in earlier releases remains part of v2.1.6:
 
 - default desired copies N=3
 - minimum committable copies M=2
@@ -146,8 +157,9 @@ Do not delete these during an update:
 - `/var/lib/hashburst/tep/node_x25519.key` — stable TEP X25519 identity
 - `/etc/hashburst/hashburst-tep.env` — TEP runtime configuration
 
-v2.1.5 treats replacement of an existing `HB_TEP_PEER_ID` as an error rather
-than silently changing identity.
+v2.1.6 preserves the existing stable identities during reinstall/upgrade and
+treats replacement of an existing `HB_TEP_PEER_ID` as an error rather than
+silently changing identity.
 
 ## Verification
 
@@ -159,8 +171,8 @@ curl -fsS http://127.0.0.1:47778/ | python3 -m json.tool
 systemctl --no-pager --full status hashburst-node hashburst-tep.service
 ```
 
-For TEP, the release gate expects `crypto_mode: AES-256-GCM` and
-`app_ready: true` on full/blockchain nodes.
+For TEP, the release gate expects `crypto_mode: AES-256-GCM`, `app_ready: true`
+and a peer set consistent with the registered network.
 
 ## CI / release safety
 
@@ -170,14 +182,25 @@ GitHub Actions runs:
 - v2.1.2 release regressions
 - v2.1.3 replication compatibility
 - v2.1.4 lifecycle safety and release contract
+- v2.1.5 installer/onboarding compatibility and release contract
 - HB-TEP-APP protocol/security/client/relay/NAT/daemon tests
 - aggregator TEP and flat-layout tests
-- v2.1.5 installer/onboarding tests
-- v2.1.5 release contract
+- v2.1.6 TEP identity/reconciliation tests
+- v2.1.6 installer upgrade/idempotency sandbox
+- v2.1.6 release contract
 
-A release is not considered production-ready solely because CI passes. The final
-release candidate must also be validated on a controlled node before the tag is
-published.
+Historical regression names remain intentionally versioned because they protect
+backward compatibility; they do not indicate that the current release is older.
+
+v2.1.6 was validated in the field and rolled out across the current five-node
+TEP network before publication.
+
+## Release
+
+Current release: **v2.1.6**.
+
+See `docs/RELEASE-v2.1.6.md`, `docs/V2.1.6-RELEASE-CHECKLIST.md` and the GitHub
+Release for the final rollout evidence and release state.
 
 ## License
 
