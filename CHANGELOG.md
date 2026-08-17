@@ -1,17 +1,18 @@
 # Changelog
 
-## 2.1.6 - Unreleased
+## 2.1.6 - 2026-08-17
 - Reload the running blockchain node environment during TEP reinstall/upgrade so updated `TEP_PUBKEY` and bootstrap settings are consumed before renewed node registration.
 - Preserve the existing blockchain Peer ID, reward/signing wallet, TEP X25519 identity, private-IPFS swarm identity, admin/panel secrets and relay policy across the reinstall path.
 - Distinguish fresh-install and reinstall service lifecycle: fresh nodes use `systemctl enable --now hashburst-node.service`; already-running nodes use a controlled `systemctl restart hashburst-node.service` after identity/environment preparation.
-- Extend the v2.1.5 installer sandbox to model the blockchain service state explicitly and verify both lifecycle branches and identity preservation.
-- Field validation on NAT/dynamic-IP `node-7` confirmed the controlled restart and identity preservation but exposed incomplete `peer_id`/`pubkey` metadata in the runtime `/api/tep/peers` view on the rendezvous while `/api/nodes` contained the correct stable identity.
-- Enrich missing TEP runtime identity from the authoritative local `/api/nodes` registry without overwriting mutable NAT coordinates learned by TEP.
+- Extend installer regression coverage to verify both lifecycle branches and identity preservation.
+- Enrich missing TEP runtime identity from the authoritative local `/api/nodes` registry without overwriting mutable NAT coordinates learned by authenticated TEP traffic.
+- Reconcile registered peers omitted by `/api/tep/peers` from `/api/nodes`, preserving an already-observed public NAT endpoint across periodic peer synchronization.
 - Make heartbeat authentication fail closed when stable X25519 identity is unavailable; remove the host-local `node.key` fallback from the v2.1.6 runtime heartbeat path.
 - Add distinct heartbeat diagnostics for missing peer identity, X25519 derivation failure and AES-256-GCM authentication failure.
-- Keep AES-256-GCM/X25519 primitives, heartbeat wire format, NAT endpoint refresh, relay policy, HB-Files and blockchain P2P behavior unchanged.
-- Add v2.1.6 identity-enrichment and release-preparation CI gates while retaining the complete v2.1.5 contract and NAT regression suite.
-- A final controlled field validation on `node-7` and the rendezvous remains release-blocking before the installer version is promoted and any `v2.1.6` tag is created.
+- Keep AES-256-GCM/X25519 primitives, heartbeat wire format, authenticated NAT endpoint refresh, relay policy, HB-Files and blockchain P2P behavior unchanged.
+- Field validation on NAT/dynamic-IP `node-7` passed with stable blockchain identity and authenticated rendezvous traffic.
+- Completed network rollout on `blockchainapi.one`, `node-6`, `n4`, `master-node` and `node-7`; all observed TEP nodes reached `peers_online=4/4`, with `pkts_dropped=0` on the rendezvous and on each upgraded public peer snapshot.
+- Add v2.1.6 identity-enrichment, registered-peer reconciliation, installer upgrade/idempotency and final release-contract CI gates while retaining the v2.1.2-v2.1.5 compatibility suites.
 
 ## 2.1.5
 - Integrate the production-validated HB-TEP-APP/1 transport into the canonical installer.
@@ -28,39 +29,3 @@
 - Integrate the storage aggregator TEP adapter, separate routing `tep_node_id` from storage `summary_node_id`, and support both repository-package and production flat module layouts.
 - Production-validate storage aggregator cutover on 64.31.4.9 with node-6 over direct TEP, relay disabled, accounting `ok`, stable PIDs/NRestarts, and unchanged mining/controller listeners.
 - Add v2.1.5 onboarding, authenticated NAT runtime and release regression CI while preserving all v2.1.2-v2.1.4 replication/accounting safety contracts.
-- Replication controller/agent remain opt-in; destructive UNPIN remains double-gated and disabled by default.
-
-## 2.1.4
-- Add safe global release lifecycle with durable reference tombstones and request/audit metadata.
-- Add object generation fencing so stale PIN/VERIFY/UNPIN jobs cannot mutate newer desired state.
-- Add destructive UNPIN as a double-gated operation: controller `HB_REPL_UNPIN_ENABLED=1`, agent `HB_REPL_ALLOW_UNPIN=1`, plus just-in-time per-job authorization.
-- Add a 15-minute final-release grace period before physical UNPIN scheduling.
-- Add safe over-replica trimming that preserves the configured N total / M committable floor.
-- Add startup recovery for authorized-but-unconfirmed UNPIN operations and periodic reconciliation.
-- Add failure-domain metadata fields to node state for placement evolution.
-- Fix replica-agent packaging by installing `hb_ipfs.py` adjacent to the replication agent, removing the runtime dependency on a fragile `PYTHONPATH` layout.
-- Keep controller bind localhost-only by default, mode `observe` by default, and both destructive gates disabled by default.
-- Add v2.1.4 lifecycle and release-contract CI coverage while preserving v2.1.2/v2.1.3 functional regressions.
-
-## 2.1.3
-- Add native HashBurst replication controller and pull-based replica agent.
-- Add N/M replication policy (default N=3 total, M=2 committable).
-- Add edge grace handling, repair placement, recursive pin verification, retries, and job leases.
-- Add idempotent logical `reference_id` tracking so controller registration/release retries do not inflate refcounts.
-- Add opt-in HB-Files replication registration hook; disabled by default during rollout.
-- Install replication components and systemd units without automatically enabling them.
-- Keep Kubo RPC localhost-only and keep automatic UNPIN disabled.
-- Add replication regression tests and CI coverage while preserving all v2.1.2 port/accounting contracts.
-
-## 2.1.2
-- Reserve 8093 for mining and make 8094 the storage aggregator default everywhere.
-- Set production storage aggregator timeout to 3 seconds.
-- Fail safe to `capacity_class: unknown` for offline nodes without explicit class/role.
-- Add explicit roles to the storage node example configuration.
-- Add CSP-safe public explorer storage-schema patcher and regression tests.
-
-## 2.1.1
-- Preserve configured `best-effort` classification for offline edge nodes.
-
-## 2.1.0
-- Introduce primary/secondary/edge roles and committable vs best-effort capacity accounting.
