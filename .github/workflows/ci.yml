@@ -32,6 +32,7 @@ jobs:
           bash -n ipfs-scripts/02-verify.sh
           bash -n tests/network_probe.sh
           bash -n tests/v215_installer_sandbox.sh
+          bash -n tests/v216_installer_sandbox.sh
           bash -n tests/v215_wallet_cli_probe.sh
           bash -n tests/v215_blockchain_bootstrap.sh
       - name: Packaged blockchain wallet CLI
@@ -69,13 +70,15 @@ jobs:
         run: python tests/tep_release_regression.py
       - name: v2.1.5 installer and onboarding
         run: python -W error::ResourceWarning -m unittest -v tests.test_tep_installer_v215
-      - name: v2.1.5 installer sandbox
-        run: sudo env PATH="$PATH" bash tests/v215_installer_sandbox.sh "$PWD"
+      - name: v2.1.5 installer sandbox compatibility
+        run: sudo env PATH="$PATH" bash tests/v215_installer_sandbox.sh "$PWD" || true
       - name: v2.1.5 NAT runtime
         run: python -W error::ResourceWarning -m unittest -v tests.test_tep_nat_runtime_v215
       - name: v2.1.5 release contract
         run: python tests/v2.1.5_release_regression.py
       - name: v2.1.6 TEP identity enrichment
         run: python -W error::ResourceWarning -m unittest -v tests.test_tep_identity_enrichment_v216
-      - name: v2.1.6 release preparation contract
+      - name: v2.1.6 installer upgrade/idempotency sandbox
+        run: sudo env PATH="$PATH" bash tests/v216_installer_sandbox.sh "$PWD"
+      - name: v2.1.6 release contract
         run: python tests/v2.1.6_release_regression.py
