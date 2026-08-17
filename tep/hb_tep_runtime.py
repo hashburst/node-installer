@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """HashBurst TEP v2.1.6 runtime preparation.
 
-Extends the v2.1 core with NAT-safe identity enrichment and fail-closed
+Extends the v2.1 core with NAT-safe identity reconciliation and fail-closed
 heartbeat authentication:
 - dynamic/NAT coordinates remain mutable after authentication;
 - stable peer_id and X25519 pubkey are enriched from /api/nodes when
   /api/tep/peers omits them;
+- registered peers omitted by /api/tep/peers are restored from /api/nodes
+  without overwriting an already-observed NAT endpoint;
 - heartbeat crypto never falls back to a host-local node.key when a
   registered peer lacks usable X25519 identity;
 - the local infrastructure node can act as its own rendezvous for the
@@ -27,41 +29,127 @@ IDENTITY_REFRESH_SEC = 30.0
 
 
 class TepEngine(core.TepEngine):
-    def _authoritative_identity(self, node_id: str):
-        """Read stable TEP identity from the blockchain /api/nodes registry."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._identity_refresh_at = {}
+        self._install_registry_reconciliation()
+
+    def _authoritative_nodes(self) -> list[dict]:
+        """Read the stable node registry from the local blockchain RPC."""
         rpc_port = int(getattr(self.peers, "_rpc_port", 8009))
         url = f"http://127.0.0.1:{rpc_port}/api/nodes"
         with urllib.request.urlopen(url, timeout=3) as response:
             data = json.loads(response.read())
         if not isinstance(data, list):
+            raise ValueError("/api/nodes did not return a list")
+        return [item for item in data if isinstance(item, dict)]
+
+    @staticmethod
+    def _identity_from_record(item: dict):
+        peer_id = str(item.get("peer_id") or "").strip()
+        pubkey = str(item.get("tep_pubkey") or "").strip().lower()
+        if not peer_id or len(pubkey) != 64:
             return None
-        for item in data:
-            if str(item.get("node_id") or "") != node_id:
-                continue
-            peer_id = str(item.get("peer_id") or "").strip()
-            pubkey = str(item.get("tep_pubkey") or "").strip().lower()
-            if not peer_id or len(pubkey) != 64:
-                return None
-            try:
-                bytes.fromhex(pubkey)
-            except ValueError:
-                return None
-            return peer_id, pubkey
+        try:
+            bytes.fromhex(pubkey)
+        except ValueError:
+            return None
+        return peer_id, pubkey
+
+    @staticmethod
+    def _bootstrap_ip_from_record(item: dict) -> str:
+        external_ip = str(item.get("external_ip") or "").strip()
+        if external_ip:
+            return external_ip
+        for addr in item.get("multiaddrs") or []:
+            parts = str(addr).split("/")
+            if len(parts) >= 3 and parts[1] in {"ip4", "ip6"} and parts[2]:
+                return parts[2]
+        return ""
+
+    def _authoritative_identity(self, node_id: str):
+        """Read stable TEP identity from the blockchain /api/nodes registry."""
+        for item in self._authoritative_nodes():
+            if str(item.get("node_id") or "") == node_id:
+                return self._identity_from_record(item)
         return None
+
+    def _merge_registered_nodes(self, nodes: list[dict], previous: dict) -> None:
+        """Restore registered peers omitted by /api/tep/peers.
+
+        Stable identity comes from /api/nodes. Mutable coordinates prefer the
+        pre-sync peer object so an authenticated public NAT mapping survives a
+        narrower /api/tep/peers snapshot. A blockchain multiaddr/external_ip is
+        used only as a bootstrap coordinate when no observed endpoint exists.
+        """
+        with self.peers._lock:
+            for item in nodes:
+                node_id = str(item.get("node_id") or "").strip()
+                if not node_id or node_id == self.node_id:
+                    continue
+                identity = self._identity_from_record(item)
+                if identity is None:
+                    continue
+                peer_id, pubkey = identity
+                current = self.peers._peers.get(node_id)
+                if current is not None:
+                    if not current.peer_id:
+                        current.peer_id = peer_id
+                    if not current.pubkey:
+                        current.pubkey = pubkey
+                    continue
+
+                prev = previous.get(node_id)
+                ip = prev.ip if prev is not None else self._bootstrap_ip_from_record(item)
+                if not ip:
+                    continue
+                try:
+                    tep_port = int(item.get("tep_port") or core.LISTEN_PORT)
+                except (TypeError, ValueError):
+                    tep_port = core.LISTEN_PORT
+                port = int(prev.port) if prev is not None else tep_port
+                self.peers._peers[node_id] = core.Peer(
+                    id=node_id,
+                    ip=ip,
+                    port=port,
+                    pubkey=pubkey,
+                    peer_id=peer_id,
+                    last_seen=prev.last_seen if prev is not None else 0.0,
+                    latency_ms=prev.latency_ms if prev is not None else None,
+                    online=prev.online if prev is not None else False,
+                )
+                core.LOG.info(
+                    "BlockchainDNS: restored registered peer %s (%s:%d)",
+                    node_id, ip, port,
+                )
+
+    def _install_registry_reconciliation(self) -> None:
+        """Wrap blockchain DNS sync so /api/nodes remains the identity superset."""
+        base_sync = self.peers.sync_from_blockchain
+
+        def reconciled_sync() -> bool:
+            previous = {peer.id: peer for peer in self.peers.get_all()}
+            ok = base_sync()
+            if not ok:
+                return ok
+            try:
+                nodes = self._authoritative_nodes()
+                self._merge_registered_nodes(nodes, previous)
+            except Exception as exc:
+                core.LOG.warning("BlockchainDNS registry reconciliation failed: %s", exc)
+            return ok
+
+        self.peers.sync_from_blockchain = reconciled_sync
 
     def _ensure_peer_identity(self, peer) -> bool:
         """Enrich only stable identity fields; never overwrite NAT coordinates."""
         if peer.peer_id and peer.pubkey:
             return True
         now = time.monotonic()
-        cache = getattr(self, "_identity_refresh_at", None)
-        if cache is None:
-            cache = {}
-            self._identity_refresh_at = cache
-        last = float(cache.get(peer.id, 0.0))
+        last = float(self._identity_refresh_at.get(peer.id, 0.0))
         if now - last < IDENTITY_REFRESH_SEC:
             return bool(peer.peer_id and peer.pubkey)
-        cache[peer.id] = now
+        self._identity_refresh_at[peer.id] = now
         try:
             identity = self._authoritative_identity(peer.id)
         except Exception as exc:
