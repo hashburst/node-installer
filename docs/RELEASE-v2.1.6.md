@@ -1,15 +1,18 @@
 # HashBurst Node Installer v2.1.6
 
-Status: release preparation, not tagged, not merged to main.
+Status: release candidate, not tagged, not merged to main.
+
+Final field validation: PASS.
 
 ## Scope
 
 v2.1.6 is a stabilization release focused on reinstall/upgrade correctness for full/blockchain nodes using HB-TEP behind NAT or dynamic addressing.
 
-The release candidate combines two narrowly-scoped fixes:
+The release candidate combines three narrowly-scoped fixes:
 
 - restart an already-running blockchain node after TEP/bootstrap environment preparation so systemd reloads `EnvironmentFile`;
-- repair incomplete runtime TEP identity by enriching missing stable `peer_id` and X25519 `pubkey` from the authoritative local `/api/nodes` registry while preserving mutable NAT coordinates.
+- repair incomplete runtime TEP identity by enriching missing stable `peer_id` and X25519 `pubkey` from the authoritative local `/api/nodes` registry while preserving mutable NAT coordinates;
+- reconcile the live TEP peer set with `/api/nodes` so a registered NAT node omitted by `/api/tep/peers` is restored instead of permanently discarded.
 
 The runtime heartbeat path is also hardened to fail closed when stable X25519 identity is unavailable instead of falling back to the host-local `node.key`.
 
@@ -26,7 +29,7 @@ v2.1.6 does not intentionally change:
 - blockchain P2P transport;
 - replication enablement or UNPIN safety gates.
 
-## Field evidence from first node-7 validation
+## Field validation evidence
 
 The first controlled `node-7` test validated the lifecycle portion of the release:
 
@@ -35,75 +38,70 @@ The first controlled `node-7` test validated the lifecycle portion of the releas
 - blockchain Peer ID, TEP node ID, TEP peer ID, TEP public key, reward address, wallet and persistent TEP key remained unchanged;
 - UDP heartbeat traffic continued after restart.
 
-The same test also proved that restart/reload alone was insufficient:
+That first test also proved that restart/reload alone was insufficient: `node-7` remained `peers_online=0/4` and received heartbeats were still dropped one-for-one.
 
-- `node-7` remained `peers_online=0/4`;
-- every newly received heartbeat was still dropped;
-- authentication failures continued for all registered peers.
+Follow-up inspection found the decisive inconsistency on `blockchainapi.one`: `/api/nodes` contained the correct `node-7` blockchain Peer ID and TEP public key, while `/api/tep/peers` omitted `node-7`. Before the reconciliation fix, dynamic TEP discovery repeatedly recreated `node-7` from its NAT address and the periodic blockchain sync removed it again.
 
-Follow-up inspection found the decisive inconsistency on `blockchainapi.one`:
+The final controlled field validation used release-candidate runtime head `d74a49180b050121ce30900e9da237f9fe3d8b19` on `blockchainapi.one` and `node-7`.
 
-- `/api/nodes` contained the correct `node-7` blockchain Peer ID and TEP public key;
-- the live TEP peer view contained the current NAT address for `node-7` but had empty `pubkey` and null `peer_id`;
-- the other three live peers had complete stable identities and were online.
+On `blockchainapi.one` the final state was:
 
-This means the mutable NAT coordinate path was working while stable identity metadata was incomplete in the TEP runtime view.
+- `peers_total=4` and `peers_online=4`;
+- `pkts_dropped=0` while authenticated traffic continued;
+- `node-7` remained online at observed NAT address `79.12.5.136:47777`;
+- `node-7` retained blockchain Peer ID `12D3KooWCkg4pM31Lzc4ZmAsJMFkW27escTNA9GwTTM8u8Q2T1b6`;
+- `node-7` retained TEP X25519 pubkey `4c7c258dd89a4b6e87fbe081077d6ed822d7e29df2760197b6edaa1a5a1ced10`.
+
+On `node-7` after restarting only `hashburst-tep.service`:
+
+- the local TEP peer set remained at four registered peers;
+- `blockchainapi.one` authenticated successfully and remained online;
+- over the measured window `pkts_recv` increased from 39 to 83 while `pkts_dropped` increased from 28 to 60, so received traffic was no longer discarded one-for-one;
+- `peers_online` remained at least 1;
+- `hashburst-node.service` remained active and blockchain `/api/health` returned `status=ok`, `chainId=1337`, and the unchanged blockchain Peer ID.
+
+The remaining AES-GCM failures from `node-6`, `n4`, and `master-node` are consistent with those peers still running the pre-v2.1.6 runtime. The upgraded rendezvous interoperates successfully with upgraded `node-7`; network-wide rollout should update the remaining peers to the same release before expecting all four peer relationships to authenticate symmetrically.
 
 ## v2.1.6 identity repair
 
-The release-preparation runtime therefore:
+The runtime:
 
-- queries the local `/api/nodes` registry only when a TEP peer is missing stable `peer_id` or `pubkey`;
-- fills only those stable identity fields and never overwrites the mutable IP/UDP coordinate already learned or supplied by TEP discovery;
+- queries the local `/api/nodes` registry when a TEP peer is missing stable `peer_id` or `pubkey`;
+- fills only stable identity fields and does not overwrite mutable IP/UDP coordinates learned from authenticated traffic;
+- reconciles the runtime peer set against registered blockchain nodes when `/api/tep/peers` omits a registered NAT node;
+- preserves a previously observed NAT endpoint when restoring that registered peer;
 - requires a valid 32-byte X25519 public key before heartbeat encryption/decryption;
 - fails closed if identity enrichment is unavailable or invalid;
 - distinguishes missing identity, X25519 key-derivation failure and AES-GCM authentication failure in the journal;
 - keeps APP/relay authentication and transport policy unchanged.
 
-## Regression gates
+## Release gates
 
-Required before release:
+The release candidate requires:
 
-- complete v2.1.2-v2.1.5 regression suite remains green;
-- v2.1.5 installer/onboarding tests remain green;
-- v2.1.5 fresh-install/reinstall sandbox remains green;
-- v2.1.5 authenticated NAT runtime tests remain green;
-- v2.1.6 identity-enrichment tests remain green;
-- v2.1.6 preparation contract remains green;
-- fresh install uses `enable --now` and not the reinstall restart path;
-- reinstall of an active blockchain node uses `restart` after TEP/bootstrap environment preparation;
-- blockchain Peer ID remains unchanged;
-- TEP node ID and TEP peer ID remain unchanged;
-- TEP public key and persistent private key remain unchanged;
-- reward address, wallet keystore and wallet password remain unchanged;
-- private-IPFS swarm key remains unchanged.
+- complete v2.1.2-v2.1.5 compatibility regressions green;
+- v2.1.5 installer/onboarding behavior retained;
+- fresh-install/reinstall identity preservation retained;
+- v2.1.5 authenticated NAT runtime behavior retained;
+- v2.1.6 identity-enrichment and registered-peer reconciliation tests green;
+- v2.1.6 installer upgrade/idempotency sandbox green;
+- final v2.1.6 release contract green;
+- exact-head CI green after canonical version promotion.
 
-## Final field validation gate
+## Deployment note
 
-Release is blocked until one final controlled validation is performed after the v2.1.6 runtime candidate is green in CI.
-
-Required success evidence:
-
-- on `blockchainapi.one`, live TEP state for `node-7` contains the same stable `peer_id` and TEP pubkey exposed by `/api/nodes` while retaining the observed NAT address;
-- `node-7` reaches at least one authenticated TEP peer;
-- received heartbeat packets are no longer discarded one-for-one;
-- the rendezvous marks `node-7` online after authenticated traffic;
-- no persistent identity, wallet or private key changes occur;
-- no new APP/relay regressions appear.
-
-If the final field gate fails, the installer version remains at 2.1.5 and the release stays blocked.
+Because only `blockchainapi.one` and `node-7` were upgraded during the final field test, `node-6`, `n4`, and `master-node` may continue producing AES-GCM heartbeat failures toward `node-7` until they receive the v2.1.6 runtime. This is a rollout/version-skew condition, not a failure of the final node-7 gate: authenticated traffic between the upgraded rendezvous and upgraded NAT node is established and stable.
 
 ## Version promotion
 
-The canonical installer must remain at `VERSION="2.1.5"` during preparation.
+The field gate has passed and the canonical installer is promoted to `VERSION="2.1.6"` on the release branch.
 
-Only after the final `node-7` field gate passes should the release branch:
+Before tag creation:
 
-1. promote the canonical installer to `VERSION="2.1.6"`;
-2. update version-specific release regression assertions;
-3. regenerate release checksums if required by the packaging workflow;
-4. run exact-head CI;
-5. review the final diff;
-6. merge through a reviewed PR;
-7. run main-branch CI;
-8. create the `v2.1.6` tag only after all release gates are green.
+1. run exact-head CI;
+2. review the final diff;
+3. merge PR #9 through review;
+4. retarget/reconcile the release PR onto `main` and verify its diff;
+5. merge the reviewed release PR;
+6. require green main-branch CI;
+7. create the `v2.1.6` tag only from the verified main commit.
