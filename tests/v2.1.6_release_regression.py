@@ -27,7 +27,7 @@ ok('prep_keeps_installer_at_2_1_5', 'VERSION="2.1.5"' in install)
 ok('v216_unreleased_changelog', '## 2.1.6 - Unreleased' in changelog)
 ok('v216_release_notes_present', 'Status: release preparation' in release)
 ok('node7_field_gate_documented', 'node-7' in release and 'Release is blocked' in release)
-ok('version_promotion_is_gated', 'Only after the `node-7` field gate passes' in release)
+ok('version_promotion_is_gated', 'Only after the final `node-7` field gate passes' in release)
 
 ok('running_node_state_detected', 'systemctl is-active --quiet hashburst-node.service' in onboard)
 ok('running_node_restart_path', 'systemctl restart hashburst-node.service' in onboard)
