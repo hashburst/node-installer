@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release contract checks for HashBurst Node Installer v2.1.5."""
+"""Release contract checks for HashBurst Node Installer v2.1.5 compatibility."""
 from pathlib import Path
 import json
 
@@ -21,7 +21,7 @@ agg=(ROOT/'aggregator/hb_aggregator.py').read_text(encoding='utf-8')
 adapter=(ROOT/'aggregator/hb_tep_adapter.py').read_text(encoding='utf-8')
 ci=(ROOT/'.github/workflows/ci.yml').read_text(encoding='utf-8')
 
-ok('installer_version_2_1_5', 'VERSION="2.1.5"' in install)
+ok('installer_version_not_older_than_2_1_5', 'VERSION="2.1.5"' in install or 'VERSION="2.1.6"' in install)
 ok('onboard_helper_required', 'need_file "$SCRIPT_DIR/bin/hb-tep-onboard"' in install)
 ok('onboard_helper_invoked', 'bash "$SCRIPT_DIR/bin/hb-tep-onboard" "$NODE_NAME" "$ROLE" "$STORAGE_ROLE"' in install)
 ok('tep_packaged', '/opt/hashburst-tep/tep' in install)
@@ -51,4 +51,4 @@ ok('aggregator_ipc_fixed_local', 'IPC_HOST = "127.0.0.1"' in adapter and 'IPC_PA
 ok('ci_v215_gate', 'v2.1.5 installer and onboarding' in ci and 'v2.1.5 NAT runtime' in ci and 'v2.1.5 release contract' in ci)
 ok('replication_still_not_auto_enabled', 'enable --now hashburst-replication-controller' not in install and 'enable --now hashburst-replica-agent' not in install)
 
-print(json.dumps({'ok':True,'checks':len(checks),'version':'2.1.5'}, indent=2))
+print(json.dumps({'ok':True,'checks':len(checks),'version':'2.1.5-compat'}, indent=2))

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.1.5"
+VERSION="2.1.6"
 ROLE="storage"                    # storage | full | blockchain | edge
 STORAGE_ROLE=""                  # primary | secondary | edge
 STORAGE_BACKEND="auto"           # auto | zfs | filesystem
@@ -246,7 +246,7 @@ if [ ! -f /etc/hashburst/replica-agent.env ]; then
   install -m 0600 "$SCRIPT_DIR/config/replica-agent.env.example" /etc/hashburst/replica-agent.env
 fi
 
-# v2.1.5 installs TEP on every role. Existing key/config material is preserved;
+# v2.1.6 installs TEP on every role. Existing key/config material is preserved;
 # bin/hb-tep-onboard performs idempotent activation after the unit is installed.
 install -d -m 0755 /opt/hashburst-tep/tep /var/lib/hashburst/tep
 cp -a "$SCRIPT_DIR/tep/." /opt/hashburst-tep/tep/
@@ -313,7 +313,7 @@ chmod 600 /etc/hashburst/install-state.json
 cp "$SCRIPT_DIR"/systemd/*.service /etc/systemd/system/
 systemctl daemon-reload
 
-# TEP activation is part of the v2.1.5 installer contract. For full/blockchain
+# TEP activation is part of the v2.1.6 installer contract. For full/blockchain
 # roles the helper starts the blockchain only after TEP_PUBKEY has been written,
 # then binds TEP to the stable blockchain Peer ID and verifies app_ready.
 bash "$SCRIPT_DIR/bin/hb-tep-onboard" "$NODE_NAME" "$ROLE" "$STORAGE_ROLE"

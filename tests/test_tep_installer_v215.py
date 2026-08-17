@@ -108,7 +108,9 @@ class TepInstallerV215Tests(unittest.TestCase):
         self.assertIn('need_file "$SCRIPT_DIR/bin/hb-tep-onboard"', INSTALL)
         self.assertIn('need_file "$SCRIPT_DIR/tep/hb_tep_runtime.py"', INSTALL)
         self.assertIn('bash "$SCRIPT_DIR/bin/hb-tep-onboard" "$NODE_NAME" "$ROLE" "$STORAGE_ROLE"', INSTALL)
-        self.assertIn('VERSION="2.1.5"', INSTALL)
+        version_line = next(line for line in INSTALL.splitlines() if line.startswith('VERSION="'))
+        version = tuple(int(part) for part in version_line.split('"')[1].split('.'))
+        self.assertGreaterEqual(version, (2, 1, 5))
 
     def test_reinstall_never_silently_replaces_swarm_key(self):
         self.assertIn('cmp -s /tmp/swarm.key /etc/hashburst/swarm.key', INSTALL)
