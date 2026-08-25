@@ -6,6 +6,8 @@ from pathlib import Path
 
 from tep.hb_tep_runtime_v220 import k325t_enabled_for_node
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 class V220ServiceRoleTests(unittest.TestCase):
     def setUp(self):
@@ -44,6 +46,14 @@ class V220ServiceRoleTests(unittest.TestCase):
         self.assertTrue(k325t_enabled_for_node("hashburst-witness-1", self.config))
         os.environ["HB_TEP_K325T_ENABLED"] = "0"
         self.assertFalse(k325t_enabled_for_node("master-node", self.config))
+
+    def test_ha_installer_packages_atomic_base_runtime(self):
+        installer = (ROOT / "ha" / "install-ha.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'install -m 0644 "$ROOT_DIR/tep/hb_tep_runtime.py" /opt/hashburst-tep/tep/hb_tep_runtime.py',
+            installer,
+        )
+        self.assertIn('/opt/hashburst-tep/tep/hb_tep_runtime.py', installer)
 
 
 if __name__ == "__main__":
