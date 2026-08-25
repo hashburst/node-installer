@@ -43,6 +43,7 @@ install -m 0755 "$ROOT_DIR/ha/hashburst_ha_agent_v220.py" /opt/hashburst-ha/hash
 install -m 0755 "$ROOT_DIR/ha/hashburst_ha_readiness.py" /opt/hashburst-ha/hashburst_ha_readiness.py
 install -m 0755 "$ROOT_DIR/ha/hashburst_ha_ingress.py" /opt/hashburst-ha/hashburst_ha_ingress.py
 install -m 0755 "$ROOT_DIR/ha/hashburst-rpc-guard.sh" /opt/hashburst-ha/hashburst-rpc-guard.sh
+install -m 0644 "$ROOT_DIR/tep/hb_tep_runtime.py" /opt/hashburst-tep/tep/hb_tep_runtime.py
 install -m 0644 "$ROOT_DIR/tep/hb_tep_ha_service.py" /opt/hashburst-tep/tep/hb_tep_ha_service.py
 install -m 0644 "$ROOT_DIR/tep/hb_tep_runtime_ha.py" /opt/hashburst-tep/tep/hb_tep_runtime_ha.py
 install -m 0644 "$ROOT_DIR/tep/hb_tep_k325t_service.py" /opt/hashburst-tep/tep/hb_tep_k325t_service.py
@@ -63,6 +64,7 @@ python3 -m py_compile \
   /opt/hashburst-ha/hashburst_ha_agent_v220.py \
   /opt/hashburst-ha/hashburst_ha_readiness.py \
   /opt/hashburst-ha/hashburst_ha_ingress.py \
+  /opt/hashburst-tep/tep/hb_tep_runtime.py \
   /opt/hashburst-tep/tep/hb_tep_ha_service.py \
   /opt/hashburst-tep/tep/hb_tep_runtime_ha.py \
   /opt/hashburst-tep/tep/hb_tep_k325t_service.py \
