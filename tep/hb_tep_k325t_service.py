@@ -42,15 +42,21 @@ class K325TExchangeConfig:
 
 
 class K325TExchangeHandler:
-    """Forward one authenticated TEP request to the fixed local K325T bridge.
-
-    Remote callers provide only the K325T JSON payload. Host, port, path, method
-    and HTTP headers are local policy and cannot be selected remotely.
-    """
+    """Forward authenticated TEP JSON to the fixed loopback K325T bridge."""
 
     def __init__(self, config: K325TExchangeConfig | None = None, opener=None) -> None:
         self.config = config or K325TExchangeConfig()
         self._opener = opener or urllib.request.urlopen
+
+    @staticmethod
+    def _decode_body(raw: bytes, status: int) -> dict[str, Any]:
+        try:
+            data = json.loads(raw.decode("utf-8", "strict"))
+        except Exception:
+            data = {"error": "local_k325t_invalid_json"}
+        if not isinstance(data, dict):
+            data = {"error": "local_k325t_non_object_response"}
+        return {"http_status": int(status), "body": data}
 
     def __call__(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, Mapping):
@@ -73,28 +79,14 @@ class K325TExchangeHandler:
                 status = int(getattr(response, "status", 200))
                 raw = response.read(self.config.max_response_bytes + 1)
         except urllib.error.HTTPError as exc:
+            status = int(exc.code)
             raw = exc.read(self.config.max_response_bytes + 1)
-            if len(raw) > self.config.max_response_bytes:
-                raise ServiceError("response_too_large", "K325T response exceeds TEP response limit") from exc
-            try:
-                data = json.loads(raw.decode("utf-8"))
-            except Exception:
-                data = {"error": "local_k325t_http_error", "status": int(exc.code)}
-            if not isinstance(data, dict):
-                data = {"error": "local_k325t_http_error", "status": int(exc.code)}
-            return data
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise ServiceError("local_service_unavailable", "local K325T bridge unavailable") from exc
         except Exception as exc:
             raise ServiceError("local_service_unavailable", "local K325T request failed") from exc
-        if status // 100 not in {2, 4, 5}:
-            raise ServiceError("local_service_unavailable", f"local K325T HTTP {status}")
         if len(raw) > self.config.max_response_bytes:
             raise ServiceError("response_too_large", "K325T response exceeds TEP response limit")
-        try:
-            data = json.loads(raw.decode("utf-8", "strict"))
-        except Exception as exc:
-            raise ServiceError("local_service_unavailable", "local K325T response is invalid JSON") from exc
-        if not isinstance(data, dict):
-            raise ServiceError("local_service_unavailable", "local K325T response must be an object")
-        return data
+        if not (100 <= status <= 599):
+            raise ServiceError("local_service_unavailable", f"local K325T HTTP {status}")
+        return self._decode_body(raw, status)
