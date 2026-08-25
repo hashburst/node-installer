@@ -4,7 +4,7 @@
   "roles": ["candidate", "voter"],
   "voters": [
     "blockchainapi.one",
-    "mlmultiservices.com",
+    "hashburst-witness-1",
     "hashburst-dr1"
   ],
   "candidates": [
@@ -20,14 +20,21 @@
     "hashburst-k325t.service"
   ],
   "required_services": [
+    "hashburst-node.service",
     "hashburst-tep.service",
     "monero-k325t-mainnet.service",
     "monero-k325t-testnet.service"
   ],
-  "health_urls": [],
+  "health_urls": ["http://127.0.0.1:8009/api/health"],
+  "monero_checks": [
+    {"name": "mainnet", "url": "http://127.0.0.1:18081/json_rpc", "nettype": "mainnet", "max_height_lag": 2},
+    {"name": "testnet", "url": "http://127.0.0.1:28081/json_rpc", "nettype": "testnet", "max_height_lag": 2}
+  ],
+  "readiness_files": [],
+  "replication_sources": [],
   "replication_state_file": "/var/lib/hashburst/ha/replication.json",
   "max_replication_lag_seconds": 30,
-  "startup_grace_seconds": 30,
+  "startup_grace_seconds": 0,
   "tep_status_url": "http://127.0.0.1:47778/",
   "tep_rpc_url": "http://127.0.0.1:47781/app/ha-lease",
   "bind_host": "127.0.0.1",
