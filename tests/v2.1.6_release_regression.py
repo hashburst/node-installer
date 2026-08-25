@@ -44,8 +44,22 @@ ok('v216_upgrade_idempotency_sandbox_present', 'V216_INSTALLER_SANDBOX_PASS' in 
 ok('v216_upgrade_idempotency_reuses_proven_sandbox', 'v215_installer_sandbox.sh' in v216_sandbox)
 
 ok('v216_enriches_identity_from_api_nodes', '/api/nodes' in runtime and 'tep_pubkey' in runtime and '_ensure_peer_identity' in runtime)
-ok('v216_restores_registered_peer_superset', 'restored registered peer' in runtime and '_install_registry_reconciliation' in runtime and '_merge_registered_nodes' in runtime)
-ok('v216_preserves_nat_coordinates', 'never overwrite NAT coordinates' in runtime or 'observed NAT endpoint' in runtime)
+legacy_superset = (
+    'restored registered peer' in runtime
+    and '_install_registry_reconciliation' in runtime
+    and '_merge_registered_nodes' in runtime
+)
+atomic_superset = all(x in runtime for x in [
+    '_install_registry_reconciliation',
+    '_tep_peer_snapshot',
+    '_authoritative_nodes',
+    '_peer_from_registry_records',
+    'set(tep_by_id) | set(nodes_by_id)',
+    'self.peers._peers = fresh',
+])
+ok('v216_restores_registered_peer_superset', legacy_superset or atomic_superset)
+ok('v216_atomic_reconciliation_preserves_superset', legacy_superset or atomic_superset)
+ok('v216_preserves_nat_coordinates', 'never overwrite NAT coordinates' in runtime or 'observed NAT endpoint' in runtime or 'authenticated observed NAT endpoints' in runtime)
 ok('v216_heartbeat_fail_closed', 'registered peer identity is incomplete' in runtime and 'return self.crypto.hmac_key' not in runtime)
 ok('v216_distinguishes_missing_peer_key', 'Heartbeat auth missing peer key' in runtime)
 ok('v216_distinguishes_key_derivation_failure', 'Heartbeat auth key derivation failed' in runtime)
