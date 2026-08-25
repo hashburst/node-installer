@@ -2,6 +2,8 @@
 set -euo pipefail
 
 CONFIG="${1:-/etc/hashburst/ha.json}"
+ACTIVE_CONFIG="/etc/hashburst/ha.json"
+GUARD_FILE="/run/hashburst-ha/lease.json"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/hashburst-primary-lease.conf" ]]; then
   GUARD_DROPIN="$SCRIPT_DIR/hashburst-primary-lease.conf"
@@ -37,11 +39,13 @@ for x in json.load(open(sys.argv[1])).get("primary_services",[]):
 PY
 )
 
-python3 - <<'PY'
-import json,urllib.request
+python3 - "$CONFIG" <<'PY'
+import json,sys,urllib.request
+cfg=json.load(open(sys.argv[1]))
 tep=json.load(urllib.request.urlopen("http://127.0.0.1:47778/",timeout=2))
 services=set(tep.get("services") or [])
 assert tep.get("app_ready") is True, "TEP APP is not ready"
+assert str(tep.get("node_id") or "") == str(cfg.get("node_id") or ""), "HA/TEP node_id mismatch"
 assert "ha.lease" in services, "ha.lease is not advertised"
 assert "k325t.exchange" in services, "k325t.exchange is not advertised"
 PY
@@ -58,7 +62,6 @@ if s.get('ready') is not True:
 PY
 rm -f /tmp/hashburst-ha-readiness.json
 
-install -d -m 0755 /etc/systemd/system
 for svc in "${PRIMARY_SERVICES[@]}"; do
   systemctl cat "$svc" >/dev/null 2>&1 || {
     echo "Refusing to arm: primary service unit not found: $svc" >&2
@@ -70,12 +73,33 @@ for svc in "${PRIMARY_SERVICES[@]}"; do
   systemctl disable "$svc" >/dev/null 2>&1 || true
 done
 
+# Stop the observation-mode processes before replacing their configuration.
+# This guarantees that no already-running agent can retain armed=false in memory.
+systemctl stop hashburst-ha-agent.service hashburst-ha-watchdog.service 2>/dev/null || true
+
+install -d -m 0755 /etc/hashburst /run/hashburst-ha
+if [[ "$(readlink -f "$CONFIG")" != "$(readlink -m "$ACTIVE_CONFIG")" ]]; then
+  install -m 0600 "$CONFIG" "$ACTIVE_CONFIG"
+else
+  chmod 0600 "$ACTIVE_CONFIG"
+fi
+
+# Establish a clean fencing boundary. Existing primary services are stopped
+# before armed HA starts; the elected holder can start them only after writing a
+# fresh same-boot lease guard.
+rm -f "$GUARD_FILE"
+for ((i=${#PRIMARY_SERVICES[@]}-1; i>=0; i--)); do
+  systemctl stop "${PRIMARY_SERVICES[$i]}" 2>/dev/null || true
+done
+
 systemctl daemon-reload
-systemctl enable --now hashburst-ha-readiness.service
-systemctl enable --now hashburst-ha-watchdog.service hashburst-ha-agent.service
+systemctl enable hashburst-ha-readiness.service hashburst-ha-watchdog.service hashburst-ha-agent.service >/dev/null
+systemctl restart hashburst-ha-readiness.service
+systemctl restart hashburst-ha-watchdog.service
+systemctl restart hashburst-ha-agent.service
 
 sleep 2
 curl -fsS http://127.0.0.1:47780/v1/status | python3 -m json.tool
 
 echo "HA candidate armed. Primary-only services are disabled for autonomous boot."
-echo "They may start only while /run/hashburst-ha/lease.json exists and HA owns the lease."
+echo "A fresh lease guard is required before either primary-only service can start."
