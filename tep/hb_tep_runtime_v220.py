@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from . import hb_tep as core
 from . import hb_tep_app as app_protocol
@@ -24,17 +26,51 @@ K325T_IPC_PORT = 47782
 K325T_IPC_MAX_REQUEST_BYTES = 16 * 1024
 K325T_IPC_MAX_RESPONSE_BYTES = 40 * 1024
 K325T_IPC_TIMEOUT_SEC = 6.0
+HA_CONFIG_PATH = Path(os.environ.get("HB_HA_CONFIG", "/etc/hashburst/ha.json"))
+
+
+def k325t_enabled_for_node(node_id: str, config_path: Path | str = HA_CONFIG_PATH) -> bool:
+    """Advertise K325T only from configured HA candidates.
+
+    A voter/observer must participate in ha.lease without presenting itself as a
+    K325T endpoint. HB_TEP_K325T_ENABLED is an explicit operator override for
+    controlled tests; otherwise /etc/hashburst/ha.json is authoritative.
+    """
+    override = os.environ.get("HB_TEP_K325T_ENABLED", "").strip().lower()
+    if override:
+        if override in {"1", "true", "yes", "on"}:
+            return True
+        if override in {"0", "false", "no", "off"}:
+            return False
+        raise RuntimeError("invalid HB_TEP_K325T_ENABLED value")
+
+    try:
+        cfg = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError, TypeError) as exc:
+        raise RuntimeError(f"unable to read HA config: {exc}") from exc
+
+    for item in cfg.get("candidates") or []:
+        candidate_id = item.get("node_id") if isinstance(item, dict) else item
+        if str(candidate_id or "").strip() == str(node_id or "").strip():
+            return True
+    return False
 
 
 class TepEngine(ha_runtime.TepEngine):
-    """TEP-HA runtime with identity-routed K325T exchange service."""
+    """TEP-HA runtime with candidate-only identity-routed K325T exchange."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._services.register(K325T_EXCHANGE_SERVICE, K325TExchangeHandler())
+        self._k325t_enabled = k325t_enabled_for_node(self.node_id)
+        if self._k325t_enabled:
+            self._services.register(K325T_EXCHANGE_SERVICE, K325TExchangeHandler())
         self._k325t_ipc_server = None
 
     def k325t_exchange_rpc(self, node_id: str, peer_id: str, payload: dict) -> dict:
+        if not self._k325t_enabled:
+            raise ProtocolError("service_unavailable", "K325T is disabled on this HA role")
         node_id = str(node_id or "").strip()
         peer_id = str(peer_id or "").strip()
         if not node_id or len(node_id) > 128:
@@ -70,6 +106,8 @@ class TepEngine(ha_runtime.TepEngine):
         return {"result": result, "path": transport.last_path}
 
     def start_k325t_ipc_server(self):
+        if not self._k325t_enabled:
+            return None
         engine = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -137,8 +175,11 @@ class TepEngine(ha_runtime.TepEngine):
         return self._k325t_ipc_server
 
     def run(self):
-        self.start_k325t_ipc_server()
-        LOG.info("TEP K325T IPC: http://%s:%d/app/k325t-exchange", K325T_IPC_HOST, K325T_IPC_PORT)
+        if self._k325t_enabled:
+            self.start_k325t_ipc_server()
+            LOG.info("TEP K325T IPC: http://%s:%d/app/k325t-exchange", K325T_IPC_HOST, K325T_IPC_PORT)
+        else:
+            LOG.info("TEP K325T disabled for non-candidate HA role: node=%s", self.node_id)
         return super().run()
 
 
