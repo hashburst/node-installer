@@ -253,6 +253,20 @@ class V220HardeningTests(unittest.TestCase):
         self.assertEqual(state["mode"], "reconstructable")
         self.assertNotIn("lag_seconds", state)
 
+    def test_arm_script_replaces_runtime_config_and_restarts_agents(self):
+        script = (HA_DIR / "arm-ha.sh").read_text()
+        self.assertIn('ACTIVE_CONFIG="/etc/hashburst/ha.json"', script)
+        self.assertIn('install -m 0600 "$CONFIG" "$ACTIVE_CONFIG"', script)
+        self.assertIn('systemctl stop hashburst-ha-agent.service hashburst-ha-watchdog.service', script)
+        self.assertIn('rm -f "$GUARD_FILE"', script)
+        self.assertIn('systemctl restart hashburst-ha-readiness.service', script)
+        self.assertIn('systemctl restart hashburst-ha-watchdog.service', script)
+        self.assertIn('systemctl restart hashburst-ha-agent.service', script)
+        self.assertLess(
+            script.index('rm -f "$GUARD_FILE"'),
+            script.index('systemctl restart hashburst-ha-agent.service'),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
