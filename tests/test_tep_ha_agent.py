@@ -145,6 +145,8 @@ class TepHaAgentTests(unittest.TestCase):
             },
         )
         self.assertTrue(grant["granted"])
+        voter._voter_deadline = 0.0
+        voter._voter_holder = ""
         denied = voter.handle_tep(
             {"node_id": "hashburst-dr1", "peer_id": "peer-dr1"},
             {
@@ -158,6 +160,35 @@ class TepHaAgentTests(unittest.TestCase):
         )
         self.assertFalse(denied["granted"])
         self.assertEqual(denied["reason"], "already_voted")
+
+    def test_active_lease_blocks_higher_term_competitor(self):
+        voter = self.network["blockchainapi.one"]
+        first = voter.handle_tep(
+            {"node_id": "master-node", "peer_id": "peer-master"},
+            {
+                "op": "vote_request",
+                "cluster_id": "hashburst-production",
+                "candidate": "master-node",
+                "priority": 10,
+                "term": 3,
+                "lease_ms": 12000,
+            },
+        )
+        self.assertTrue(first["granted"])
+        denied = voter.handle_tep(
+            {"node_id": "hashburst-dr1", "peer_id": "peer-dr1"},
+            {
+                "op": "vote_request",
+                "cluster_id": "hashburst-production",
+                "candidate": "hashburst-dr1",
+                "priority": 20,
+                "term": 4,
+                "lease_ms": 12000,
+            },
+        )
+        self.assertFalse(denied["granted"])
+        self.assertEqual(denied["reason"], "active_lease")
+        self.assertEqual(denied["term"], 3)
 
     def test_candidate_cannot_impersonate_another_source(self):
         voter = self.network["blockchainapi.one"]
