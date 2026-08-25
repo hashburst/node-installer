@@ -7,12 +7,18 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import hb_tep as core
+from . import hb_tep_app as app_protocol
 from . import hb_tep_runtime as runtime
 from .hb_tep_app import Identity, ProtocolError, encode_message, new_response
 from .hb_tep_client import TepClientError, TepRpcClient
 from .hb_tep_ha_service import HA_LEASE_SERVICE, HaLeaseHandler
 from .hb_tep_relay import FailoverTepTransport
 from .hb_tep_services import ServiceError
+
+# The stable v2.1.6 base runtime keeps its original service allowlist unchanged.
+# The HA runtime extends the process-local APP allowlist without changing packet
+# numbers or the heartbeat wire format.
+app_protocol.SUPPORTED_SERVICES = frozenset(set(app_protocol.SUPPORTED_SERVICES) | {HA_LEASE_SERVICE})
 
 LOG = logging.getLogger("hb-tep-ha")
 HA_IPC_HOST = "127.0.0.1"
