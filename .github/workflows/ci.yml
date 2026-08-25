@@ -28,6 +28,7 @@ jobs:
           bash -n ha/install-ha.sh
           bash -n ha/arm-ha.sh
           bash -n ha/preflight-tep-host.sh
+          bash -n ha/hashburst-rpc-guard.sh
           bash -n bin/hb-tep-onboard
           bash -n bin/hb-node-wallet-bootstrap
           bash -n ipfs-scripts/01-install-ipfs-dual-ZFS.sh
