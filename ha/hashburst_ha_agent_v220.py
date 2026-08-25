@@ -4,10 +4,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -137,16 +139,65 @@ class EligibilityChecker(base.EligibilityChecker):
         return not reasons, reasons
 
 
+class _CachingEligibility:
+    def __init__(self, delegate, publish):
+        self.delegate = delegate
+        self.publish = publish
+
+    def check(self) -> tuple[bool, list[str]]:
+        eligible, reasons = self.delegate.check()
+        reasons = list(reasons)
+        self.publish(bool(eligible), reasons)
+        return bool(eligible), reasons
+
+
 class LeaseEngine(base.LeaseEngine):
     def __init__(self, config: base.Config, *, raw_config: dict[str, Any], **kwargs):
         eligibility = kwargs.pop("eligibility", None) or EligibilityChecker(config, raw_config)
         super().__init__(config, eligibility=eligibility, **kwargs)
+        self._eligibility_state_lock = threading.Lock()
+        self._eligibility_state = (
+            (False, ["eligibility_not_checked"])
+            if self.config.is_candidate
+            else (False, ["not_candidate"])
+        )
+        self._eligibility_delegate = self.eligibility
+        self.eligibility = _CachingEligibility(self._eligibility_delegate, self._publish_eligibility)
         term, voted_for = self.vote_state.snapshot()
         self._restart_guard_until = (
             base.boot_seconds() + self.config.lease_seconds
             if self.config.is_voter and term > 0 and voted_for
             else 0.0
         )
+
+    def _publish_eligibility(self, eligible: bool, reasons: list[str]) -> None:
+        with self._eligibility_state_lock:
+            self._eligibility_state = (bool(eligible), list(reasons))
+
+    def _cached_eligibility(self) -> tuple[bool, list[str]]:
+        with self._eligibility_state_lock:
+            eligible, reasons = self._eligibility_state
+            return bool(eligible), list(reasons)
+
+    def local_status(self) -> dict[str, Any]:
+        eligible, reasons = self._cached_eligibility()
+        with self._lock:
+            status = self._voter_status()
+            status.update({
+                "roles": sorted(self.config.roles),
+                "candidate_priority": self.config.priority if self.config.is_candidate else None,
+                "eligible": eligible,
+                "eligibility_reasons": reasons,
+                "armed": self.config.armed,
+                "local_role": "primary" if self._leader_deadline > base.boot_seconds() else self.controller.desired,
+                "leader_term": self._leader_term,
+                "leader_remaining_ms": max(
+                    0, int((self._leader_deadline - base.boot_seconds()) * 1000)
+                ),
+                "cluster_view": self._cluster_view,
+                "last_error": self._last_error,
+            })
+            return status
 
     def handle_tep(self, source: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(payload, dict) and str(payload.get("op") or "") == "vote_request":
@@ -171,6 +222,11 @@ class LeaseEngine(base.LeaseEngine):
         return super().handle_tep(source, payload)
 
     def _renew(self) -> bool:
+        eligible, reasons = self.eligibility.check()
+        if not eligible:
+            self._demote("ineligible:" + ",".join(reasons))
+            return False
+
         started = base.boot_seconds()
         payload = {
             "op": "renew",
@@ -228,6 +284,73 @@ class LeaseEngine(base.LeaseEngine):
         return False
 
 
+class AgentHttpServer:
+    def __init__(self, engine: LeaseEngine):
+        self.engine = engine
+        self.server: ThreadingHTTPServer | None = None
+
+    def start(self) -> ThreadingHTTPServer:
+        engine = self.engine
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                return
+
+            def _send(self, status: int, payload: dict[str, Any]) -> bool:
+                body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                try:
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return True
+                except (BrokenPipeError, ConnectionResetError):
+                    LOG.debug("HA local HTTP client disconnected before response completed")
+                    return False
+
+            def do_GET(self):
+                if self.path != "/v1/status":
+                    self._send(404, {"ok": False, "error": {"code": "not_found"}})
+                    return
+                self._send(200, {"ok": True, "status": engine.local_status()})
+
+            def do_POST(self):
+                if self.path != "/v1/tep":
+                    self._send(404, {"ok": False, "error": {"code": "not_found"}})
+                    return
+                if (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower() != "application/json":
+                    self._send(415, {"ok": False, "error": {"code": "unsupported_media_type"}})
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length") or "0")
+                except ValueError:
+                    length = 0
+                if length <= 0 or length > 16384:
+                    self._send(413, {"ok": False, "error": {"code": "request_too_large"}})
+                    return
+                try:
+                    data = json.loads(self.rfile.read(length).decode("utf-8"))
+                    source = data.get("source")
+                    payload = data.get("payload")
+                    if not isinstance(data, dict) or not isinstance(source, dict) or not isinstance(payload, dict):
+                        raise base.HaError("bad_request", "invalid TEP forwarding envelope")
+                    result = engine.handle_tep(source, payload)
+                    self._send(200, {"ok": True, "result": result})
+                except base.HaError as exc:
+                    self._send(400, {"ok": False, "error": {"code": exc.code}})
+                except (BrokenPipeError, ConnectionResetError):
+                    LOG.debug("HA local HTTP client disconnected while request was completing")
+                except Exception:
+                    LOG.exception("Local HA TEP handler failed")
+                    self._send(500, {"ok": False, "error": {"code": "internal_error"}})
+
+        self.server = ThreadingHTTPServer((engine.config.bind_host, engine.config.bind_port), Handler)
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True, name="ha-http")
+        thread.start()
+        return self.server
+
+
 def watchdog(config: base.Config) -> None:
     if not config.is_candidate or not config.armed:
         while True:
@@ -271,7 +394,7 @@ def main() -> None:
     transport = base.TepIpcClient(config)
     base.validate_local_tep_identity(config, transport)
     engine = LeaseEngine(config, raw_config=raw_config, transport=transport)
-    base.AgentHttpServer(engine).start()
+    AgentHttpServer(engine).start()
     if args.check:
         print(json.dumps(engine.local_status(), indent=2, sort_keys=True))
         return
