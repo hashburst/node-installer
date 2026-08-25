@@ -1,0 +1,20 @@
+[Unit]
+Description=HashBurst TEP-HA independent fencing watchdog
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/hashburst-ha/hashburst_ha_agent.py --config /etc/hashburst/ha.json --watchdog
+Restart=always
+RestartSec=1
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/hashburst/ha /run/hashburst-ha
+
+[Install]
+WantedBy=multi-user.target
