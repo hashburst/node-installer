@@ -20,7 +20,7 @@ jobs:
       - name: Python syntax
         run: |
           python -m py_compile aggregator/*.py hbfiles/*.py replication/*.py integrations/explorer/patch_hashburst_explorer.py
-          python -m py_compile tep/*.py patched/hb_tep.py tools/hb_tep_packet_scan.py tools/tep_staging_network_test.py ha/*.py
+          python -m py_compile tep/*.py patched/hb_tep.py tools/hb_tep_packet_scan.py tools/tep_staging_network_test.py ha/*.py ha/payload/*.py
           python -m py_compile tests/test_tep_installer_v215.py tests/test_tep_nat_runtime_v215.py tests/test_tep_identity_enrichment_v216.py tests/test_tep_ha_agent.py tests/test_tep_ha_protocol.py tests/test_tep_ha_v220.py tests/test_tep_v220_service_roles.py tests/v2.1.5_release_regression.py tests/v2.1.6_release_regression.py
       - name: Shell syntax
         run: |
@@ -29,6 +29,8 @@ jobs:
           bash -n ha/arm-ha.sh
           bash -n ha/preflight-tep-host.sh
           bash -n ha/hashburst-rpc-guard.sh
+          bash -n ha/payload/make_xd675_dr1_seed.sh
+          bash -n ha/payload/install_dr1_seed_v220.sh
           bash -n bin/hb-tep-onboard
           bash -n bin/hb-node-wallet-bootstrap
           bash -n ipfs-scripts/01-install-ipfs-dual-ZFS.sh
