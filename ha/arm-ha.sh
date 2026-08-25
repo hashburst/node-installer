@@ -2,10 +2,17 @@
 set -euo pipefail
 
 CONFIG="${1:-/etc/hashburst/ha.json}"
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/hashburst-primary-lease.conf" ]]; then
+  GUARD_DROPIN="$SCRIPT_DIR/hashburst-primary-lease.conf"
+else
+  ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+  GUARD_DROPIN="$ROOT_DIR/ha/hashburst-primary-lease.conf"
+fi
 
 [[ $EUID -eq 0 ]] || { echo "Run as root." >&2; exit 1; }
 [[ -f "$CONFIG" ]] || { echo "Missing HA config: $CONFIG" >&2; exit 1; }
+[[ -f "$GUARD_DROPIN" ]] || { echo "Missing primary lease guard: $GUARD_DROPIN" >&2; exit 1; }
 
 python3 - "$CONFIG" <<'PY'
 import json,sys
@@ -58,7 +65,7 @@ for svc in "${PRIMARY_SERVICES[@]}"; do
     exit 1
   }
   install -d -m 0755 "/etc/systemd/system/${svc}.d"
-  install -m 0644 "$ROOT_DIR/ha/hashburst-primary-lease.conf" \
+  install -m 0644 "$GUARD_DROPIN" \
     "/etc/systemd/system/${svc}.d/20-hashburst-ha-lease.conf"
   systemctl disable "$svc" >/dev/null 2>&1 || true
 done
