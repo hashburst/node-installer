@@ -1,0 +1,22 @@
+[Unit]
+Description=HashBurst TEP-HA distributed lease agent
+After=network-online.target hashburst-tep.service
+Wants=network-online.target
+Requires=hashburst-tep.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/hashburst-ha/hashburst_ha_agent.py --config /etc/hashburst/ha.json
+Restart=always
+RestartSec=2
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/hashburst/ha /run/hashburst-ha
+
+[Install]
+WantedBy=multi-user.target
