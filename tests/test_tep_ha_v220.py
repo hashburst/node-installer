@@ -29,6 +29,16 @@ class AlwaysEligible:
         return True, []
 
 
+class MutableEligibility:
+    def __init__(self, ready=True):
+        self.ready = ready
+        self.calls = 0
+
+    def check(self):
+        self.calls += 1
+        return self.ready, [] if self.ready else ["not_ready"]
+
+
 class AdvancingTransport:
     def __init__(self, clock, step=2.0):
         self.clock = clock
@@ -172,6 +182,68 @@ class V220HardeningTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("monero_not_synchronized:mainnet", reasons)
         self.assertIn("monero_busy_syncing:mainnet", reasons)
+
+    def test_local_status_uses_cached_eligibility_without_rechecking(self):
+        candidates = [{"node_id": "candidate", "priority": 10}]
+        path, raw = write_config(
+            self.root,
+            "candidate",
+            {"candidate", "voter"},
+            ["candidate"],
+            candidates,
+        )
+        config = base.Config.load(path)
+        eligibility = MutableEligibility(True)
+        engine = v220.LeaseEngine(
+            config,
+            raw_config=raw,
+            controller=FakeController(),
+            eligibility=eligibility,
+        )
+
+        initial = engine.local_status()
+        self.assertFalse(initial["eligible"])
+        self.assertEqual(initial["eligibility_reasons"], ["eligibility_not_checked"])
+        self.assertEqual(eligibility.calls, 0)
+
+        engine.eligibility.check()
+        self.assertEqual(eligibility.calls, 1)
+        cached = engine.local_status()
+        self.assertTrue(cached["eligible"])
+        self.assertEqual(cached["eligibility_reasons"], [])
+        self.assertEqual(eligibility.calls, 1)
+
+    def test_renew_demotes_immediately_when_eligibility_is_lost(self):
+        clock = [100.0]
+        base.boot_seconds = lambda: clock[0]
+        candidates = [{"node_id": "candidate", "priority": 10}]
+        path, raw = write_config(
+            self.root,
+            "candidate",
+            {"candidate", "voter"},
+            ["candidate"],
+            candidates,
+        )
+        config = base.Config.load(path)
+        controller = FakeController()
+        controller.desired = "primary"
+        eligibility = MutableEligibility(False)
+        engine = v220.LeaseEngine(
+            config,
+            raw_config=raw,
+            controller=controller,
+            eligibility=eligibility,
+        )
+        engine._leader_term = 3
+        engine._leader_deadline = 110.0
+
+        self.assertFalse(engine._renew())
+        self.assertEqual(eligibility.calls, 1)
+        self.assertEqual(engine._leader_deadline, 0.0)
+        self.assertEqual(controller.desired, "standby")
+        status = engine.local_status()
+        self.assertFalse(status["eligible"])
+        self.assertEqual(status["eligibility_reasons"], ["not_ready"])
 
     def test_reconstructable_readiness_does_not_invent_replication_lag(self):
         required = self.root / "master_node.py"
