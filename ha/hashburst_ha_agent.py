@@ -451,6 +451,18 @@ class LeaseEngine:
                 raise HaError("bad_lease", "invalid requested lease duration")
             with self._lock:
                 current_term, voted_for = self.vote_state.snapshot()
+                if (
+                    self._voter_deadline > boot_seconds()
+                    and self._voter_holder
+                    and self._voter_holder != candidate
+                ):
+                    return {
+                        "granted": False,
+                        "term": current_term,
+                        "holder": self._voter_holder,
+                        "lease_remaining_ms": self._lease_remaining_ms(),
+                        "reason": "active_lease",
+                    }
                 if term < current_term:
                     return {"granted": False, "term": current_term, "reason": "stale_term"}
                 if term > current_term:
