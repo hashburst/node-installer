@@ -6,8 +6,9 @@ heartbeat authentication:
 - dynamic/NAT coordinates remain mutable after authentication;
 - stable peer_id and X25519 pubkey are enriched from /api/nodes when
   /api/tep/peers omits them;
-- registered peers omitted by /api/tep/peers are restored from /api/nodes
-  without overwriting an already-observed NAT endpoint;
+- /api/tep/peers and /api/nodes are reconciled before one atomic table swap;
+- registered peers omitted by /api/tep/peers remain available without a
+  remove/restore window;
 - heartbeat crypto never falls back to a host-local node.key when a
   registered peer lacks usable X25519 identity;
 - the local infrastructure node can act as its own rendezvous for the
@@ -44,10 +45,35 @@ class TepEngine(core.TepEngine):
             raise ValueError("/api/nodes did not return a list")
         return [item for item in data if isinstance(item, dict)]
 
+    def _tep_peer_snapshot(self) -> list[dict]:
+        """Read the narrow transport registry without mutating the peer table."""
+        rpc_port = int(getattr(self.peers, "_rpc_port", 8009))
+        url = core.BLOCKCHAIN_PEERS_API.format(rpc_port=rpc_port)
+        with urllib.request.urlopen(url, timeout=5) as response:
+            data = json.loads(response.read())
+        if not isinstance(data, dict):
+            raise ValueError("/api/tep/peers did not return an object")
+        peers = data.get("peers", [])
+        if not isinstance(peers, list):
+            raise ValueError("/api/tep/peers peers is not a list")
+        return [item for item in peers if isinstance(item, dict)]
+
     @staticmethod
     def _identity_from_record(item: dict):
         peer_id = str(item.get("peer_id") or "").strip()
         pubkey = str(item.get("tep_pubkey") or "").strip().lower()
+        if not peer_id or len(pubkey) != 64:
+            return None
+        try:
+            bytes.fromhex(pubkey)
+        except ValueError:
+            return None
+        return peer_id, pubkey
+
+    @staticmethod
+    def _identity_from_tep_record(item: dict):
+        peer_id = str(item.get("peer_id") or "").strip()
+        pubkey = str(item.get("pubkey") or item.get("tep_pubkey") or "").strip().lower()
         if not peer_id or len(pubkey) != 64:
             return None
         try:
@@ -74,70 +100,108 @@ class TepEngine(core.TepEngine):
                 return self._identity_from_record(item)
         return None
 
-    def _merge_registered_nodes(self, nodes: list[dict], previous: dict) -> None:
-        """Restore registered peers omitted by /api/tep/peers.
+    def _peer_from_registry_records(self, node_id: str, tep_item: dict | None,
+                                    node_item: dict | None, previous) -> core.Peer | None:
+        authoritative_identity = self._identity_from_record(node_item or {})
+        tep_identity = self._identity_from_tep_record(tep_item or {})
+        identity = authoritative_identity or tep_identity
 
-        Stable identity comes from /api/nodes. Mutable coordinates prefer the
-        pre-sync peer object so an authenticated public NAT mapping survives a
-        narrower /api/tep/peers snapshot. A blockchain multiaddr/external_ip is
-        used only as a bootstrap coordinate when no observed endpoint exists.
-        """
-        with self.peers._lock:
-            for item in nodes:
-                node_id = str(item.get("node_id") or "").strip()
-                if not node_id or node_id == self.node_id:
-                    continue
-                identity = self._identity_from_record(item)
-                if identity is None:
-                    continue
-                peer_id, pubkey = identity
-                current = self.peers._peers.get(node_id)
-                if current is not None:
-                    if not current.peer_id:
-                        current.peer_id = peer_id
-                    if not current.pubkey:
-                        current.pubkey = pubkey
-                    continue
+        observed = previous is not None and float(previous.last_seen or 0.0) > 0.0
+        if observed:
+            ip = str(previous.ip or "").strip()
+            port = int(previous.port)
+        else:
+            ip = str((tep_item or {}).get("ip") or "").strip()
+            if not ip and node_item is not None:
+                ip = self._bootstrap_ip_from_record(node_item)
+            try:
+                port = int((tep_item or {}).get("port") or (node_item or {}).get("tep_port") or core.LISTEN_PORT)
+            except (TypeError, ValueError):
+                port = core.LISTEN_PORT
 
-                prev = previous.get(node_id)
-                ip = prev.ip if prev is not None else self._bootstrap_ip_from_record(item)
-                if not ip:
-                    continue
-                try:
-                    tep_port = int(item.get("tep_port") or core.LISTEN_PORT)
-                except (TypeError, ValueError):
-                    tep_port = core.LISTEN_PORT
-                port = int(prev.port) if prev is not None else tep_port
-                self.peers._peers[node_id] = core.Peer(
-                    id=node_id,
-                    ip=ip,
-                    port=port,
-                    pubkey=pubkey,
-                    peer_id=peer_id,
-                    last_seen=prev.last_seen if prev is not None else 0.0,
-                    latency_ms=prev.latency_ms if prev is not None else None,
-                    online=prev.online if prev is not None else False,
-                )
-                core.LOG.info(
-                    "BlockchainDNS: restored registered peer %s (%s:%d)",
-                    node_id, ip, port,
-                )
+        if not ip:
+            return None
+
+        peer_id = identity[0] if identity else str(getattr(previous, "peer_id", "") or "").strip()
+        pubkey = identity[1] if identity else str(getattr(previous, "pubkey", "") or "").strip()
+        return core.Peer(
+            id=node_id,
+            ip=ip,
+            port=port,
+            pubkey=pubkey or None,
+            peer_id=peer_id or None,
+            last_seen=float(previous.last_seen) if previous is not None else 0.0,
+            latency_ms=previous.latency_ms if previous is not None else None,
+            online=bool(previous.online) if previous is not None else False,
+        )
 
     def _install_registry_reconciliation(self) -> None:
-        """Wrap blockchain DNS sync so /api/nodes remains the identity superset."""
-        base_sync = self.peers.sync_from_blockchain
+        """Reconcile both blockchain registries before one peer-table swap."""
 
         def reconciled_sync() -> bool:
-            previous = {peer.id: peer for peer in self.peers.get_all()}
-            ok = base_sync()
-            if not ok:
-                return ok
+            tep_records: list[dict] = []
+            node_records: list[dict] = []
+            tep_ok = False
+            nodes_ok = False
             try:
-                nodes = self._authoritative_nodes()
-                self._merge_registered_nodes(nodes, previous)
+                tep_records = self._tep_peer_snapshot()
+                tep_ok = True
             except Exception as exc:
-                core.LOG.warning("BlockchainDNS registry reconciliation failed: %s", exc)
-            return ok
+                core.LOG.debug("BlockchainDNS TEP registry read failed: %s", exc)
+            try:
+                node_records = self._authoritative_nodes()
+                nodes_ok = True
+            except Exception as exc:
+                core.LOG.debug("BlockchainDNS node registry read failed: %s", exc)
+
+            if not tep_ok and not nodes_ok:
+                self.peers._dns_source = "static"
+                return False
+
+            tep_by_id = {
+                str(item.get("id") or "").strip(): item
+                for item in tep_records
+                if str(item.get("id") or "").strip()
+            }
+            nodes_by_id = {
+                str(item.get("node_id") or "").strip(): item
+                for item in node_records
+                if str(item.get("node_id") or "").strip()
+            }
+            candidate_ids = (set(tep_by_id) | set(nodes_by_id)) - {self.node_id}
+
+            with self.peers._lock:
+                previous = dict(self.peers._peers)
+                fresh: dict[str, core.Peer] = {}
+                for node_id in sorted(candidate_ids):
+                    peer = self._peer_from_registry_records(
+                        node_id,
+                        tep_by_id.get(node_id),
+                        nodes_by_id.get(node_id),
+                        previous.get(node_id),
+                    )
+                    if peer is not None:
+                        fresh[node_id] = peer
+
+                added = set(fresh) - set(previous)
+                removed = set(previous) - set(fresh)
+                for node_id in sorted(added):
+                    peer = fresh[node_id]
+                    core.LOG.info(
+                        "BlockchainDNS: new peer discovered: %s (%s:%d)",
+                        node_id, peer.ip, peer.port,
+                    )
+                for node_id in sorted(removed):
+                    core.LOG.info("BlockchainDNS: peer removed from reconciled registry: %s", node_id)
+
+                self.peers._peers = fresh
+                self.peers._dns_source = "blockchain"
+
+            core.LOG.info(
+                "BlockchainDNS: reconciled %d peers (tep=%d nodes=%d)",
+                len(fresh), len(tep_records), len(node_records),
+            )
+            return True
 
         self.peers.sync_from_blockchain = reconciled_sync
 
