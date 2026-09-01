@@ -16,14 +16,13 @@
   "rpc_timeout_seconds": 2.5,
   "armed": false,
   "primary_services": [
-    "hashburst-master.service",
-    "hashburst-k325t.service"
+    "hashburst-master.service"
   ],
   "required_services": [
     "hashburst-node.service",
     "hashburst-tep.service",
-    "monero-k325t-mainnet.service",
-    "monero-k325t-testnet.service"
+    "hashburst-monero-mainnet.service",
+    "hashburst-monero-testnet.service"
   ],
   "health_urls": ["http://127.0.0.1:8009/api/health"],
   "monero_checks": [
