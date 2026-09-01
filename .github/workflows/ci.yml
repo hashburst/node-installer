@@ -21,7 +21,7 @@ jobs:
         run: |
           python -m py_compile aggregator/*.py hbfiles/*.py replication/*.py integrations/explorer/patch_hashburst_explorer.py
           python -m py_compile tep/*.py patched/hb_tep.py tools/hb_tep_packet_scan.py tools/tep_staging_network_test.py ha/*.py ha/payload/*.py
-          python -m py_compile tests/test_tep_installer_v215.py tests/test_tep_nat_runtime_v215.py tests/test_tep_identity_enrichment_v216.py tests/test_tep_ha_agent.py tests/test_tep_ha_protocol.py tests/test_tep_ha_v220.py tests/test_tep_v220_service_roles.py tests/v2.1.5_release_regression.py tests/v2.1.6_release_regression.py
+          python -m py_compile tests/test_tep_installer_v215.py tests/test_tep_nat_runtime_v215.py tests/test_tep_identity_enrichment_v216.py tests/test_tep_ha_agent.py tests/test_tep_ha_protocol.py tests/test_tep_ha_v220.py tests/test_tep_v220_service_roles.py tests/test_v220_hashburst_scope.py tests/v2.1.5_release_regression.py tests/v2.1.6_release_regression.py
       - name: Shell syntax
         run: |
           bash -n install.sh
@@ -81,7 +81,7 @@ jobs:
       - name: HB-TEP-APP release contract
         run: python tests/tep_release_regression.py
       - name: TEP-HA lease and fencing
-        run: python -W error::ResourceWarning -m unittest -v tests.test_tep_ha_agent tests.test_tep_ha_protocol tests.test_tep_ha_v220 tests.test_tep_v220_service_roles
+        run: python -W error::ResourceWarning -m unittest -v tests.test_tep_ha_agent tests.test_tep_ha_protocol tests.test_tep_ha_v220 tests.test_tep_v220_service_roles tests.test_v220_hashburst_scope
       - name: v2.1.5 installer and onboarding
         run: python -W error::ResourceWarning -m unittest -v tests.test_tep_installer_v215
       - name: v2.1.5 NAT runtime
