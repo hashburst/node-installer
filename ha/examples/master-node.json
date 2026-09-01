@@ -11,12 +11,12 @@
   "loop_seconds": 2,
   "rpc_timeout_seconds": 2.5,
   "armed": false,
-  "primary_services": ["hashburst-master.service", "hashburst-k325t.service"],
+  "primary_services": ["hashburst-master.service"],
   "required_services": [
     "hashburst-node.service",
     "hashburst-tep.service",
-    "monero-k325t-mainnet.service",
-    "monero-k325t-testnet.service"
+    "hashburst-monero-mainnet.service",
+    "hashburst-monero-testnet.service"
   ],
   "health_urls": [
     "http://127.0.0.1:8009/api/health"
@@ -40,10 +40,8 @@
   "readiness_files": [
     {"name": "master-code", "path": "/opt/hashburst/master_node.py", "sha256": true},
     {"name": "master-config", "path": "/etc/hashburst/config.json", "sha256": true},
-    {"name": "k325t-v220", "path": "/opt/hashburst/k325t/server/orchestrator_v220.py", "sha256": true},
-    {"name": "k325t-config", "path": "/etc/hashburst/k325t.env"},
-    {"name": "monero-mainnet-config", "path": "/etc/monero-k325t/mainnet.conf", "sha256": true},
-    {"name": "monero-testnet-config", "path": "/etc/monero-k325t/testnet.conf", "sha256": true}
+    {"name": "monero-mainnet-config", "path": "/etc/hashburst/monero/mainnet.conf", "sha256": true},
+    {"name": "monero-testnet-config", "path": "/etc/hashburst/monero/testnet.conf", "sha256": true}
   ],
   "replication_sources": [],
   "replication_state_file": "/var/lib/hashburst/ha/replication.json",
