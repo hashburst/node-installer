@@ -56,13 +56,12 @@ install -m 0644 "$ROOT_DIR/ha/hashburst-node-rpc-guard.conf" /etc/systemd/system
 install -m 0755 "$ROOT_DIR/ha/arm-ha.sh" /opt/hashburst-ha/arm-ha.sh
 install -m 0644 "$ROOT_DIR/ha/hashburst-primary-lease.conf" /opt/hashburst-ha/hashburst-primary-lease.conf
 
-# Remove only obsolete integration artifacts that belonged to the previous
-# mixed v2.2 HA experiment. Do not touch any separately deployed application
-# service outside the TEP/HA runtime.
+# Remove the obsolete generic HA ingress wrapper from the previous mixed v2.2
+# experiment. Any project-specific legacy module is intentionally handled once
+# by the operator during migration and is not part of this repository.
 systemctl disable --now hashburst-ha-ingress.service >/dev/null 2>&1 || true
 rm -f \
   /opt/hashburst-ha/hashburst_ha_ingress.py \
-  /opt/hashburst-tep/tep/hb_tep_k325t_service.py \
   /etc/systemd/system/hashburst-ha-ingress.service
 
 python3 -m py_compile \
