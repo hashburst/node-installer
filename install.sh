@@ -11,6 +11,7 @@ CAPACITY_GB=""
 SWARM_MASTER_IP=""
 SWARM_PEER_ID=""
 AGGREGATOR_IP=""
+EXTERNAL_IP=""
 NODE_NAME=""
 PRIMARY="no"
 MINER="false"
@@ -42,6 +43,7 @@ Federation:
   --swarm-master-ip IP
   --swarm-peer-id PEER_ID
   --aggregator-ip IP
+  --external-ip ADDRESS
 
 IPFS public daemon handling:
   --public-ipfs-mode auto|reuse|managed|disabled
@@ -54,15 +56,15 @@ Safety:
 Examples:
   sudo ./install.sh --role full --storage-role primary \
     --storage-backend filesystem --storage-path /datapool/hashburst \
-    --capacity-gb 5120 --public-ipfs-mode auto
+    --capacity-gb 5120 --external-ip 192.0.2.10 --public-ipfs-mode auto
 
   sudo ./install.sh --role storage --storage-role secondary \
-    --capacity-gb 400 --swarm-master-ip 85.233.199.35 \
-    --swarm-peer-id PEER --aggregator-ip 64.31.4.9
+    --capacity-gb 400 --external-ip 192.0.2.11 --swarm-master-ip 192.0.2.10 \
+    --swarm-peer-id PEER --aggregator-ip 192.0.2.20
 
   sudo ./install.sh --role full --storage-role edge \
-    --capacity-gb 100 --swarm-master-ip 85.233.199.35 \
-    --swarm-peer-id PEER --aggregator-ip 64.31.4.9 --node-name node-7 --miner
+    --capacity-gb 100 --swarm-master-ip 192.0.2.10 \
+    --swarm-peer-id PEER --aggregator-ip 192.0.2.20 --node-name node-7 --miner
 USAGE
 }
 
@@ -77,6 +79,7 @@ while [ $# -gt 0 ]; do
     --swarm-master-ip) SWARM_MASTER_IP="$2"; shift 2;;
     --swarm-peer-id) SWARM_PEER_ID="$2"; shift 2;;
     --aggregator-ip) AGGREGATOR_IP="$2"; shift 2;;
+    --external-ip) EXTERNAL_IP="$2"; shift 2;;
     --node-name) NODE_NAME="$2"; shift 2;;
     --public-ipfs-mode) PUBLIC_IPFS_MODE="$2"; shift 2;;
     --files-bind) FILES_BIND="$2"; shift 2;;
@@ -105,6 +108,22 @@ elif [ -z "$STORAGE_ROLE" ]; then
   [ "$ROLE" = "edge" ] && STORAGE_ROLE="edge" || STORAGE_ROLE="secondary"
 fi
 case "$STORAGE_ROLE" in primary|secondary|edge|none) ;; *) echo "ERROR: invalid --storage-role" >&2; exit 2;; esac
+
+if [ "$STORAGE_ROLE" = primary ] || [ "$STORAGE_ROLE" = secondary ]; then
+  [ -n "$EXTERNAL_IP" ] || {
+    echo "ERROR: --external-ip is required for primary and secondary storage nodes" >&2
+    exit 2
+  }
+fi
+
+if [ -n "$EXTERNAL_IP" ]; then
+  case "$EXTERNAL_IP" in
+    *[!A-Za-z0-9.-]*)
+      echo "ERROR: invalid --external-ip; use an IPv4 address or DNS hostname" >&2
+      exit 2
+      ;;
+  esac
+fi
 
 run() { if [ "$DRY_RUN" = yes ]; then printf '[dry-run]'; printf ' %q' "$@"; echo; else "$@"; fi; }
 need_file() { [ -f "$1" ] || { echo "ERROR: required package file missing: $1" >&2; exit 1; }; }
@@ -206,6 +225,7 @@ cat <<INFO
  storage role:     ${STORAGE_ROLE}
  storage backend:  ${STORAGE_BACKEND}
  storage path:     ${STORAGE_PATH}
+ external address: ${EXTERNAL_IP:-TEP-only}
  public IPFS mode: ${PUBLIC_IPFS_MODE}
  HB-Files bind:    ${FILES_BIND}
  TEP:              automatic, fail-closed AES-256-GCM
@@ -272,6 +292,7 @@ fi
 
 cat > /etc/hashburst/env <<ENV
 NODE_ID=${NODE_NAME}
+EXTERNAL_IP=${EXTERNAL_IP}
 MINER_ENABLED=${MINER}
 HB_ADMIN_SECRET=${ADMIN_SECRET}
 HB_PANEL_SECRET=${PANEL_SECRET}
@@ -305,6 +326,7 @@ cat > /etc/hashburst/install-state.json <<STATE
   "storage_backend": "${STORAGE_BACKEND}",
   "storage_path": "${STORAGE_PATH}",
   "zfs_dataset": "${ZFS_DATASET}",
+  "external_ip": "${EXTERNAL_IP}",
   "public_ipfs_mode": "${PUBLIC_IPFS_MODE}"
 }
 STATE

@@ -7,7 +7,7 @@ TEP share link format:
   tep://<node_tep_pubkey>/<share_token>
 
 HTTP share link (direct IP, no DNS required):
-  http://85.233.199.35/files/<share_token>
+  http://<external-address>/files/<share_token>
 
 Domain share link (optional, if domain associated):
   https://files.example.com/files/<share_token>
@@ -283,7 +283,10 @@ class Storage:
             tenant_id=tenant_id,
             expires_at=int(time.time()) + ttl_sec,
             tep_address=f'tep://{tep_pubkey}/{token}',
-            http_address=f'http://{server_ip}/files/{token}',
+            http_address=(
+                f'http://{server_ip}/files/{token}'
+                if server_ip else ''
+            ),
             domain_address=(f'https://{tenant_domain}/files/{token}'
                             if tenant_domain else ''),
             max_downloads=max_downloads,
@@ -337,7 +340,7 @@ def get_tep_pubkey() -> str:
         return os.environ.get('TEP_PUBKEY', '')
 
 def get_server_ip() -> str:
-    return os.environ.get('EXTERNAL_IP', '85.233.199.35')
+    return os.environ.get('EXTERNAL_IP', '').strip()
 
 
 # ── HTTP request handler ───────────────────────────────────────────────────────
