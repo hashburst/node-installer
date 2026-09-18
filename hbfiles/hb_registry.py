@@ -3,7 +3,7 @@
 HB-Files — Registry & Auth (Strato A)
 =====================================
 Autenticazione apikey + signature contro list.json (scelta B: file locale sul
-nodo 0). Sostituisce il vecchio token-tenant singolo.
+nodo registry). Sostituisce il vecchio token-tenant singolo.
 
 MODELLO
   L'utente e' identificato dalla sua apikey HashBurst (hex-40). La signature
@@ -14,11 +14,11 @@ MODELLO
         "wallets": { "COIN": [addr...] } }, ... ]
 
 FONTE list.json
-  File locale su /etc/hashburst/list.json (nodo 0), aggiornato via:
+  File locale su /etc/hashburst/list.json (nodo registry), aggiornato via:
     curl -s -X POST https://api.synapta.net/download_list.php \
       -H "Content-Type: application/json" -d '{"token":"<TOKEN>"}' \
       -o /etc/hashburst/list.json
-  (l'IP del nodo 0 e' in whitelist per quella chiamata)
+  (l'IP del nodo registry e' in whitelist per quella chiamata)
 
   Cache invalidata su mtime: non rilegge/riparsa 1862 entry ad ogni richiesta.
   Nessun contenuto di list.json finisce mai in output o nei log.

@@ -65,7 +65,7 @@ class CapacityAccountant:
 
     # ---- capacita' fisica (da ZFS) -----------------------------------------
     def physical(self) -> dict:
-        quota = _zfs_get("quota")          # tetto dedicato ZFS (es. 5 TB sul nodo 0)
+        quota = _zfs_get("quota")          # tetto dedicato ZFS (es. 5 TB sul nodo storage con quota dedicata)
         used = _zfs_get("used")            # usato reale dal dataset ZFS
         avail = _zfs_get("available")      # disponibile ZFS
 
