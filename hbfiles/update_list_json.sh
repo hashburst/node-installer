@@ -1,6 +1,6 @@
 #!/bin/bash
 # Aggiorna /etc/hashburst/list.json dal database originale via download_list.php.
-# L'IP del nodo 0 e' in whitelist per questa chiamata.
+# L'IP del nodo registry e' in whitelist per questa chiamata.
 # Il token va tenuto in /etc/hashburst/download.token (permessi 600), NON qui.
 set -e
 TOKEN_FILE="${HB_DOWNLOAD_TOKEN_FILE:-/etc/hashburst/download.token}"

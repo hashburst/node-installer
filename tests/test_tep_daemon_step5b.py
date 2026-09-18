@@ -189,6 +189,17 @@ class Step5BDaemonTests(unittest.TestCase):
         self._start_rx(a,r,b)
         client=TepRpcClient(local_identity=Identity('node-a','peer-a'), transport=lambda pid, raw, t: a.relay_transport('peer-r',pid,raw,t))
         out=client.request(destination=Identity('node-b','peer-b'),service='storage.summary',payload={},timeout_sec=3)
-        self.assertEqual(out['node_id'],'node-b'); self.assertGreaterEqual(r.stats.relay_requests,1); self.assertGreaterEqual(b.stats.relay_requests,1)
+        self.assertEqual(out['node_id'],'node-b')
+
+        # The client can receive the response before the asynchronous relay
+        # handlers have updated their statistics.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if r.stats.relay_requests >= 1 and b.stats.relay_requests >= 1:
+                break
+            time.sleep(0.01)
+
+        self.assertGreaterEqual(r.stats.relay_requests,1)
+        self.assertGreaterEqual(b.stats.relay_requests,1)
 
 if __name__=='__main__': unittest.main()
