@@ -22,15 +22,11 @@ Physical IP addresses are mutable network coordinates and must not be used as th
 
 The following items belong to the separate Neurallity BI3339M project and MUST NOT be included in HashBurst v2.2 runtime, HA readiness, failover payloads, public ingress, TEP application services, tests, release documentation or deployment requirements:
 
-- K325T FPGA PCB and K325T firmware;
-- any K325T-specific TEP service or application routing;
-- K325T HTTP/JSON ingress;
-- K325T API tokens or K325T secrets;
 - BI3339M AI-1 decision/orchestration logic;
 - BI3339M AI-2 mining segmentation logic;
 - BI3339M or prospective HashStrike patent claims, implementations or documentation.
 
-Monero itself is not excluded from HashBurst. The HashBurst TEP-MINER/DePIN PoC retains its Monero mainnet/testnet validation services, but their service names, configuration paths and HA requirements must be HashBurst-generic and must not depend on K325T or BI3339M.
+Monero remains part of the HashBurst TEP-MINER and DePIN PoC. Its mainnet and testnet validation services use HashBurst-generic names, paths and HA requirements and remain independent from external device-specific projects.
 
 Conversely, HB-TEP inventions, protocol claims and TEP-specific HA/routing mechanisms are not part of the BI3339M/HashStrike patent scope unless separately and explicitly decided through a formal patent review.
 
