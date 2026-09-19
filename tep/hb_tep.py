@@ -57,6 +57,7 @@ APP_PACKET_TYPES = frozenset({
 LISTEN_PORT   = 47777
 STATUS_PORT   = 47778
 HEARTBEAT_SEC = 10
+PEER_ONLINE_TTL_SEC = max(3 * HEARTBEAT_SEC, 30)
 DNS_SYNC_SEC  = 60      # intervallo sincronizzazione peers dalla blockchain
 IPC_MAX_REQUEST_BYTES = 8 * 1024
 IPC_MAX_RESPONSE_BYTES = 32 * 1024
@@ -295,12 +296,37 @@ class PeerManager:
             peer.port = int(port)
             return True
 
+    @staticmethod
+    def _peer_is_fresh(peer: Peer, now: float) -> bool:
+        last_seen = float(peer.last_seen or 0.0)
+        age = float(now) - last_seen
+        return bool(
+            peer.online
+            and last_seen > 0.0
+            and 0.0 <= age <= PEER_ONLINE_TTL_SEC
+        )
+
+    def _expire_stale_locked(self, now: float) -> None:
+        for peer in self._peers.values():
+            if peer.online and not self._peer_is_fresh(peer, now):
+                peer.online = False
+
     def online_count(self) -> int:
-        return sum(1 for p in self._peers.values() if p.online)
+        with self._lock:
+            self._expire_stale_locked(time.time())
+            return sum(
+                1
+                for peer in self._peers.values()
+                if peer.online
+            )
 
     def to_json(self) -> list:
         with self._lock:
-            return [asdict(p) for p in self._peers.values()]
+            self._expire_stale_locked(time.time())
+            return [
+                asdict(peer)
+                for peer in self._peers.values()
+            ]
 
     @property
     def dns_source(self) -> str:
