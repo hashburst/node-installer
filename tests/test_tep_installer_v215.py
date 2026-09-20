@@ -84,7 +84,13 @@ class TepInstallerV215Tests(unittest.TestCase):
         self.assertIn('HB_TEP_RELAY_ENABLED "1" replace', SCRIPT)
         self.assertIn('HB_TEP_RENDEZVOUS_PEERS "$PEER_ID" replace', SCRIPT)
         self.assertIn('rendezvous_peer_id != self.peer_id', RUNTIME)
-        self.assertIn('env.service != "storage.summary"', RUNTIME)
+        self.assertIn("if env.service not in {", RUNTIME)
+        self.assertIn('"storage.summary",', RUNTIME)
+        self.assertIn('"master.status",', RUNTIME)
+        self.assertIn(
+            "local relay permits approved read-only services only",
+            RUNTIME,
+        )
 
     def test_ordinary_nodes_force_relay_off_and_canonical_rendezvous(self):
         self.assertGreaterEqual(SCRIPT.count('HB_TEP_RELAY_ENABLED "0" replace'), 2)

@@ -10,7 +10,7 @@ EXPECTED_NODE_ID="hashburst-dr1"
 EXPECTED_PEER_ID="12D3KooWCcBw87pFYFyHwxK6YCQGCpjLcbxPJLxWxx7qdKah1bnN"
 EXPECTED_TEP_PUBKEY="b75568b136da2bead662ef80573fa938169198c9aa7c047236faed2eaa193348"
 
-for cmd in python3 rsync systemctl ss getent id useradd groupadd sha256sum nproc df awk; do
+for cmd in python3 rsync systemctl ss getent id useradd groupadd sha256sum nproc df awk apt-get; do
   command -v "$cmd" >/dev/null || { echo "Missing command: $cmd" >&2; exit 1; }
 done
 [[ -f "$SEED" ]] || { echo "Missing $SEED" >&2; exit 1; }
@@ -68,6 +68,13 @@ for account in monero-mainnet monero-testnet; do
   getent group "$account" >/dev/null 2>&1 || groupadd --system "$account"
   id "$account" >/dev/null 2>&1 || useradd --system --gid "$account" --home-dir "/var/lib/hashburst/monero/$account" --shell /usr/sbin/nologin "$account"
 done
+
+if ! python3 -c 'import aiohttp' >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y python3-aiohttp
+fi
+
+python3 -c 'import aiohttp'
 
 python3 - "$ST/etc/hashburst/monero/mainnet.conf" "/etc/hashburst/monero/mainnet.conf" mainnet "$(nproc)" <<'PY'
 import os,sys

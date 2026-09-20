@@ -307,8 +307,11 @@ class TepEngine(core.TepEngine):
             raise ProtocolError("identity_mismatch", "local relay source identity mismatch")
         if env.destination.peer_id != target_peer_id:
             raise ProtocolError("identity_mismatch", "local relay target identity mismatch")
-        if env.service != "storage.summary":
-            raise ProtocolError("unsupported_service", "local relay permits storage.summary only")
+        if env.service not in {
+            "storage.summary",
+            "master.status",
+        }:
+            raise ProtocolError("unsupported_service", "local relay permits approved read-only services only")
 
         target = self.peers.find_by_peer_id(target_peer_id)
         if target is None or not target.pubkey:
