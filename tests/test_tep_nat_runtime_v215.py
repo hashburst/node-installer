@@ -87,7 +87,14 @@ class TepRuntimeV215Tests(unittest.TestCase):
 
     def test_local_rendezvous_has_explicit_service_guard(self):
         runtime = (Path(__file__).resolve().parents[1] / 'tep' / 'hb_tep_runtime.py').read_text(encoding='utf-8')
-        self.assertIn('env.service != "storage.summary"', runtime)
+        self.assertIn("if env.service not in {", runtime)
+        self.assertIn('"storage.summary",', runtime)
+        self.assertIn('"master.status",', runtime)
+        self.assertIn(
+            "local relay permits approved "
+            "read-only services only",
+            runtime,
+        )
         self.assertIn('unsupported_service', runtime)
 
     def test_runtime_prefers_wire_identity_before_source_ip(self):
