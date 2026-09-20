@@ -30,7 +30,10 @@ DEFAULT_MAX_PENDING = 256
 DEFAULT_MAX_PENDING_PER_SOURCE = 32
 DEFAULT_MAX_RELAY_ATTEMPTS = 2
 MAX_INNER_BYTES = 32768
-ALLOWED_RELAY_SERVICES = frozenset({"storage.summary"})
+ALLOWED_RELAY_SERVICES = frozenset({
+    "storage.summary",
+    "master.status",
+})
 
 
 class RelayError(RuntimeError):
