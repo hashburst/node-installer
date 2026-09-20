@@ -1,0 +1,22 @@
+[Unit]
+Description=HashBurst Monero Mainnet PoC
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=monero-mainnet
+Group=monero-mainnet
+ExecStart=/opt/monero/0.18.5.1/monerod --config-file /etc/hashburst/monero/mainnet.conf --non-interactive
+Restart=on-failure
+RestartSec=10
+Nice=10
+CPUQuota=800%
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

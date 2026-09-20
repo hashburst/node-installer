@@ -14,15 +14,17 @@ TEP-HA adds a quorum-based, exclusive primary lease to the existing HB-TEP netwo
 Voters:
 
 - `blockchainapi.one` (`64.31.4.9`)
-- `mlmultiservices.com` (`77.90.188.180`)
-- `hashburst-dr1` (new VPS)
+- `hashburst-witness-1` (`77.90.188.154`), voter + observer only
+- `hashburst-dr1` (`77.90.188.153`), voter + candidate
 
 Candidates:
 
 - `master-node` / XD675 (`85.233.199.35`), priority 10
-- `hashburst-dr1`, priority 20
+- `hashburst-dr1` (`77.90.188.153`), priority 20
 
-Quorum is 2 of 3. The primary role is a logical resource; it is not tied to `85.233.199.35`.
+Quorum is 2 of 3. The primary role is a logical resource; it is not tied to `85.233.199.35` or to any other IP address.
+
+`hashburst-witness-1` and `hashburst-dr1` are intentionally separate TEP identities even though their current transport addresses are adjacent in the same provider subnet. This creates a correlated availability failure domain: if both `.153` and `.154` become unreachable together, only one voter remains and the cluster must fail closed without a primary lease. It does not permit split brain. A future topology may add an additional witness in a third independent failure domain without changing the logical primary contract.
 
 ## Safety model
 
@@ -60,13 +62,14 @@ The status contains the local role, term, lease holder, quorum reachability, eli
 
 ## Production activation sequence
 
-1. Install the HA-enabled TEP runtime on all voters and candidates, one TEP node at a time.
-2. Install TEP-HA with `armed=false` on `blockchainapi.one`, `mlmultiservices.com`, XD675 and DR1.
-3. Confirm TEP `app_ready=true`, `ha.lease` advertised, peer identity and public key stability, and 2-of-3 voter quorum.
-4. Confirm DR1 replication eligibility and Monero synchronization.
-5. Run an observation-mode election/failover test without changing production service state.
-6. Configure the two public ingress nodes to route to the lease holder.
-7. Set `armed=true` on both candidates and enable the independent watchdog.
-8. Perform a controlled production failover test and measure RTO/RPO.
+1. Run `ha/preflight-tep-host.sh` on `77.90.188.154`. If an existing TEP identity is present, preserve and adopt it; do not overwrite or clone identity files. If no TEP identity exists, onboard the host as `hashburst-witness-1`.
+2. Install the HA-enabled TEP runtime on all voters and candidates, one TEP node at a time.
+3. Install TEP-HA with `armed=false` on `blockchainapi.one`, `hashburst-witness-1`, XD675 and DR1.
+4. Confirm TEP `app_ready=true`, `ha.lease` advertised, peer identity and public key stability, and 2-of-3 voter quorum.
+5. Confirm DR1 replication eligibility and Monero synchronization.
+6. Run an observation-mode election/failover test without changing production service state.
+7. Configure the two public ingress nodes to route to the lease holder.
+8. Set `armed=true` on both candidates and enable the independent watchdog.
+9. Perform a controlled production failover test and measure RTO/RPO.
 
-Do not clone TEP private identity files between candidates. Every HA node keeps its own TEP identity; only the logical `HASHBURST_PRIMARY` role moves.
+Do not clone TEP private identity files between candidates or voters. Every HA node keeps its own TEP identity; only the logical `HASHBURST_PRIMARY` role moves.

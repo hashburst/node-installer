@@ -1,12 +1,12 @@
 [Unit]
 Description=HashBurst TEP-HA distributed lease agent
-After=network-online.target hashburst-tep.service
-Wants=network-online.target
+After=network-online.target hashburst-tep.service hashburst-ha-readiness.service
+Wants=network-online.target hashburst-ha-readiness.service
 Requires=hashburst-tep.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/hashburst-ha/hashburst_ha_agent.py --config /etc/hashburst/ha.json
+ExecStart=/usr/bin/python3 /opt/hashburst-ha/hashburst_ha_agent_v220.py --config /etc/hashburst/ha.json
 Restart=always
 RestartSec=2
 User=root

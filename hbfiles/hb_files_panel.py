@@ -3,7 +3,7 @@
 HB-Files Panel v2.0 -- Strato B2 (cifratura sovrana lato client)
 Browser chiama /proxy/* su :8092. Il panel inoltra al backend :8091.
 La cifratura/decifratura avviene NEL BROWSER: il panel non vede mai chiaro.
-Single SSH tunnel: ssh -L 8092:127.0.0.1:8092 synapta@85.233.199.35
+Single SSH tunnel: ssh -L 8092:127.0.0.1:8092 user@<external-address>
 """
 import os, json, urllib.request, urllib.error, logging
 from http.server import HTTPServer, BaseHTTPRequestHandler

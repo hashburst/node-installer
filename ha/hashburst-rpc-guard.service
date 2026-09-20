@@ -1,0 +1,12 @@
+[Unit]
+Description=HashBurst blockchain RPC ingress guard
+Before=hashburst-node.service
+
+[Service]
+Type=oneshot
+Environment=HB_RPC_GUARD_PORT=8009
+ExecStart=/opt/hashburst-ha/hashburst-rpc-guard.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

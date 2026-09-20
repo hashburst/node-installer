@@ -12,13 +12,20 @@ from . import hb_tep_runtime as runtime
 from .hb_tep_app import Identity, ProtocolError, encode_message, new_response
 from .hb_tep_client import TepClientError, TepRpcClient
 from .hb_tep_ha_service import HA_LEASE_SERVICE, HaLeaseHandler
+from .hb_tep_master_service import (
+    MASTER_STATUS_SERVICE,
+    MasterStatusHandler,
+)
 from .hb_tep_relay import FailoverTepTransport
 from .hb_tep_services import ServiceError
 
 # The stable v2.1.6 base runtime keeps its original service allowlist unchanged.
 # The HA runtime extends the process-local APP allowlist without changing packet
 # numbers or the heartbeat wire format.
-app_protocol.SUPPORTED_SERVICES = frozenset(set(app_protocol.SUPPORTED_SERVICES) | {HA_LEASE_SERVICE})
+app_protocol.SUPPORTED_SERVICES = frozenset(
+    set(app_protocol.SUPPORTED_SERVICES)
+    | {HA_LEASE_SERVICE, MASTER_STATUS_SERVICE}
+)
 
 LOG = logging.getLogger("hb-tep-ha")
 HA_IPC_HOST = "127.0.0.1"
@@ -34,7 +41,15 @@ class TepEngine(runtime.TepEngine):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._ha_handler = HaLeaseHandler()
-        self._services.register(HA_LEASE_SERVICE, self._ha_handler)
+        self._master_status_handler = MasterStatusHandler()
+        self._services.register(
+            HA_LEASE_SERVICE,
+            self._ha_handler,
+        )
+        self._services.register(
+            MASTER_STATUS_SERVICE,
+            self._master_status_handler,
+        )
         self._ha_ipc_server = None
 
     def _handle_app_request(self, env, peer, addr) -> None:
@@ -93,6 +108,68 @@ class TepEngine(runtime.TepEngine):
             "relay_peer_id": transport.last_relay_peer_id,
         }
 
+    def master_status_rpc(
+        self,
+        node_id: str,
+        peer_id: str,
+    ) -> dict:
+        node_id = str(node_id or "").strip()
+        peer_id = str(peer_id or "").strip()
+
+        if not node_id or len(node_id) > 128:
+            raise ProtocolError(
+                "bad_request",
+                "invalid node_id",
+            )
+
+        if not peer_id or len(peer_id) > 256:
+            raise ProtocolError(
+                "bad_request",
+                "invalid peer_id",
+            )
+
+        if not self.app_ready:
+            raise ProtocolError(
+                "app_unavailable",
+                "HB-TEP-APP/1 is not ready",
+            )
+
+        transport = FailoverTepTransport(
+            direct=self.app_transport,
+            relay=self.relay_transport,
+            relay_peer_ids=self._rendezvous_peer_ids,
+            direct_timeout_sec=min(
+                1.2,
+                HA_IPC_TIMEOUT_SEC,
+            ),
+            max_relay_attempts=(
+                core.IPC_MAX_RELAY_ATTEMPTS
+            ),
+        )
+
+        client = TepRpcClient(
+            local_identity=self.local_identity,
+            transport=transport,
+        )
+
+        result = client.request(
+            destination=Identity(
+                node_id=node_id,
+                peer_id=peer_id,
+            ),
+            service=MASTER_STATUS_SERVICE,
+            payload={},
+            timeout_sec=HA_IPC_TIMEOUT_SEC,
+        )
+
+        return {
+            "result": result,
+            "path": transport.last_path,
+            "relay_peer_id": (
+                transport.last_relay_peer_id
+            ),
+        }
+
     def start_ha_ipc_server(self):
         engine = self
 
@@ -115,8 +192,19 @@ class TepEngine(runtime.TepEngine):
                 self._send(405, {"ok": False, "error": {"code": "method_not_allowed"}})
 
             def do_POST(self):
-                if self.path != "/app/ha-lease":
-                    self._send(404, {"ok": False, "error": {"code": "not_found"}})
+                if self.path not in {
+                    "/app/ha-lease",
+                    "/app/master-status",
+                }:
+                    self._send(
+                        404,
+                        {
+                            "ok": False,
+                            "error": {
+                                "code": "not_found",
+                            },
+                        },
+                    )
                     return
                 content_type = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
                 if content_type != "application/json":
@@ -134,15 +222,77 @@ class TepEngine(runtime.TepEngine):
                 except Exception:
                     self._send(400, {"ok": False, "error": {"code": "invalid_json"}})
                     return
-                if not isinstance(data, dict) or set(data) != {"node_id", "peer_id", "payload"}:
-                    self._send(400, {"ok": False, "error": {"code": "bad_request"}})
+                if not isinstance(data, dict):
+                    self._send(
+                        400,
+                        {
+                            "ok": False,
+                            "error": {
+                                "code": "bad_request",
+                            },
+                        },
+                    )
                     return
-                if not isinstance(data.get("payload"), dict):
-                    self._send(400, {"ok": False, "error": {"code": "bad_request"}})
-                    return
+
+                if self.path == "/app/ha-lease":
+                    expected_keys = {
+                        "node_id",
+                        "peer_id",
+                        "payload",
+                    }
+                    if (
+                        set(data) != expected_keys
+                        or not isinstance(
+                            data.get("payload"),
+                            dict,
+                        )
+                    ):
+                        self._send(
+                            400,
+                            {
+                                "ok": False,
+                                "error": {
+                                    "code": "bad_request",
+                                },
+                            },
+                        )
+                        return
+                else:
+                    if set(data) != {
+                        "node_id",
+                        "peer_id",
+                    }:
+                        self._send(
+                            400,
+                            {
+                                "ok": False,
+                                "error": {
+                                    "code": "bad_request",
+                                },
+                            },
+                        )
+                        return
+
                 try:
-                    result = engine.ha_lease_rpc(data["node_id"], data["peer_id"], data["payload"])
-                    self._send(200, {"ok": True, **result})
+                    if self.path == "/app/ha-lease":
+                        result = engine.ha_lease_rpc(
+                            data["node_id"],
+                            data["peer_id"],
+                            data["payload"],
+                        )
+                    else:
+                        result = engine.master_status_rpc(
+                            data["node_id"],
+                            data["peer_id"],
+                        )
+
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            **result,
+                        },
+                    )
                 except TepClientError as exc:
                     status = 504 if exc.code == "request_timeout" else 503
                     self._send(status, {"ok": False, "error": {"code": exc.code}})
@@ -162,7 +312,11 @@ class TepEngine(runtime.TepEngine):
 
     def run(self):
         self.start_ha_ipc_server()
-        LOG.info("TEP HA IPC: http://%s:%d/app/ha-lease", HA_IPC_HOST, HA_IPC_PORT)
+        LOG.info(
+            "TEP HA IPC active on %s:%d",
+            HA_IPC_HOST,
+            HA_IPC_PORT,
+        )
         return super().run()
 
 

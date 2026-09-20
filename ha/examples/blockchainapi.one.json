@@ -2,7 +2,7 @@
   "cluster_id": "hashburst-production",
   "node_id": "blockchainapi.one",
   "roles": ["voter", "observer"],
-  "voters": ["blockchainapi.one", "mlmultiservices.com", "hashburst-dr1"],
+  "voters": ["blockchainapi.one", "hashburst-witness-1", "hashburst-dr1"],
   "candidates": [
     {"node_id": "master-node", "priority": 10},
     {"node_id": "hashburst-dr1", "priority": 20}
@@ -14,9 +14,12 @@
   "primary_services": [],
   "required_services": [],
   "health_urls": [],
+  "monero_checks": [],
+  "readiness_files": [],
+  "replication_sources": [],
   "replication_state_file": "",
   "max_replication_lag_seconds": 30,
-  "startup_grace_seconds": 30,
+  "startup_grace_seconds": 0,
   "tep_status_url": "http://127.0.0.1:47778/",
   "tep_rpc_url": "http://127.0.0.1:47781/app/ha-lease",
   "bind_host": "127.0.0.1",

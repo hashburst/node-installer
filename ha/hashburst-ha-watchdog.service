@@ -4,7 +4,7 @@ After=local-fs.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/hashburst-ha/hashburst_ha_agent.py --config /etc/hashburst/ha.json --watchdog
+ExecStart=/usr/bin/python3 /opt/hashburst-ha/hashburst_ha_agent_v220.py --config /etc/hashburst/ha.json --watchdog
 Restart=always
 RestartSec=1
 User=root
