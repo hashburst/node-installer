@@ -1,0 +1,29 @@
+[Unit]
+Description=HashBurst HA-aware master ingress
+After=network-online.target hashburst-tep.service hashburst-ha-agent.service
+Wants=network-online.target
+Requires=hashburst-tep.service hashburst-ha-agent.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/hashburst-master-ingress
+ExecStart=/usr/bin/python3 /opt/hashburst-master-ingress/hashburst_master_ingress.py --bind 127.0.0.1 --port 8096
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
