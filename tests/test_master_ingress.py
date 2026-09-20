@@ -45,8 +45,11 @@ def healthy_ha(
 ):
     return {
         "status": {
-            "armed": True,
-            "eligible": True,
+            "armed": False,
+            "eligible": False,
+            "eligibility_reasons": [
+                "not_candidate",
+            ],
             "holder": "hashburst-dr1",
             "term": 7,
             "lease_remaining_ms": lease_ms,
@@ -160,6 +163,49 @@ class MasterIngressTests(unittest.TestCase):
         self.assertEqual(
             data["ha"]["quorum"],
             2,
+        )
+
+    def test_holder_mismatch_fails_closed(self):
+        ha = healthy_ha()
+        ha["status"]["cluster_view"]["holder"] = (
+            "different-node"
+        )
+
+        resolver = MasterResolver(
+            opener=ResolverOpener(
+                ha=ha,
+            ),
+        )
+
+        with self.assertRaises(
+            IngressError,
+        ) as raised:
+            resolver.discovery()
+
+        self.assertEqual(
+            raised.exception.code,
+            "ha_holder_mismatch",
+        )
+
+    def test_no_holder_fails_closed(self):
+        ha = healthy_ha()
+        ha["status"]["holder"] = ""
+        ha["status"]["cluster_view"]["holder"] = ""
+
+        resolver = MasterResolver(
+            opener=ResolverOpener(
+                ha=ha,
+            ),
+        )
+
+        with self.assertRaises(
+            IngressError,
+        ) as raised:
+            resolver.discovery()
+
+        self.assertEqual(
+            raised.exception.code,
+            "master_unavailable",
         )
 
     def test_no_quorum_fails_closed(self):

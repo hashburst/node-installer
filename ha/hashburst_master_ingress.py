@@ -197,12 +197,6 @@ class MasterResolver:
                 "HA cluster view is unavailable",
             )
 
-        if status.get("armed") is not True:
-            raise IngressError(
-                "ha_disarmed",
-                "HA is not armed",
-            )
-
         holder = str(
             status.get("holder") or ""
         ).strip()
@@ -211,6 +205,16 @@ class MasterResolver:
             raise IngressError(
                 "master_unavailable",
                 "HA has no current master",
+            )
+
+        cluster_holder = str(
+            view.get("holder") or ""
+        ).strip()
+
+        if cluster_holder != holder:
+            raise IngressError(
+                "ha_holder_mismatch",
+                "local and cluster HA holder disagree",
             )
 
         try:
