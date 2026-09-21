@@ -1,0 +1,16 @@
+[Unit]
+Description=HashBurst PCB Emulator (HA-discovered master)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/hashburst/tools/hashburst_emulator_ha_launcher.py --api-port 9100 --boards 2 --check-interval 15
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/hashburst/emulator.log
+StandardError=append:/var/log/hashburst/emulator.log
+
+[Install]
+WantedBy=multi-user.target
