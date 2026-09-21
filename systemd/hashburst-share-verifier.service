@@ -1,0 +1,15 @@
+[Unit]
+Description=HashBurst v3.2.3 share-chain qualification verifier (on demand)
+After=network-online.target hashburst-emulator.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/hashburst/tools/hashburst_share_verifier.py --emulator-api http://127.0.0.1:9100/api/boards --master-api https://blockchainapi.one/api/hashburst/master/status watch --interval 30 --evidence /var/lib/hashburst/share-chain-evidence.jsonl --qualification-file /var/lib/hashburst/qualification-status.json --baseline-file /var/lib/hashburst/qualification-baseline.json --control-worker master-control-1 --min-control-accepted 1 --max-control-reject-pct 0.01 --audited-evidence /var/lib/hashburst/audited-evidence.json
+Restart=no
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Intentionally no [Install] section: the verifier is started only when a
+# demonstration job exists. An absent RX JOB is not a daemon failure.
