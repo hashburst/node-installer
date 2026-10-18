@@ -100,6 +100,8 @@ case "$FILES_BIND" in auto|127.0.0.1|0.0.0.0) ;; *) echo "ERROR: invalid --files
 
 [ "$(id -u)" = 0 ] || { echo "ERROR: run as root" >&2; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/archive-guard.sh"
+hashburst_require_writable_install_target
 [ -n "$NODE_NAME" ] || NODE_NAME="hb-$(hostname)"
 
 if [ "$ROLE" = "blockchain" ]; then
