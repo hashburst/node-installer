@@ -205,3 +205,19 @@ Release for the final rollout evidence and release state.
 ## License
 
 MIT — see `LICENSE`.
+
+## Archived networks and HA recovery
+
+The generic installer refuses a host whose hashburst-node.service runs the
+immutable legacy archive. The HA installer applies the same guard before
+changing files. Use the separate reviewed HVM deployment procedure for mainnet;
+this installer does not activate chain 4735489 or import balances.
+
+HA installation now persists a systemd-tmpfiles rule for /run/hashburst-ha,
+owned by root with mode 0700. Reboot recreates the directory, not lease.json.
+The agent must acquire a fresh quorum lease before starting primary services.
+No existing lease is copied or extended.
+
+Mainnet publication still requires the approved protocol, signed production
+validator registrations, founder-signed funding, the assembled checkpoint and
+runtime/fleet acceptance. Legacy remains read-only and HVM testnet stays separate.

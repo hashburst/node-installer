@@ -29,6 +29,8 @@ done
 [[ $EUID -eq 0 ]] || { echo "Run as root." >&2; exit 1; }
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/lib/archive-guard.sh"
+hashburst_require_writable_install_target
 [[ -f /opt/hashburst-tep/tep/hb_tep_runtime.py ]] || {
   echo "Existing HashBurst TEP v2.1.6-compatible runtime not found under /opt/hashburst-tep/tep." >&2
   exit 1
@@ -37,6 +39,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 install -d -m 0755 /opt/hashburst-ha /opt/hashburst-tep/tep
 install -d -m 0755 /etc/hashburst /etc/systemd/system/hashburst-tep.service.d /etc/systemd/system/hashburst-node.service.d
 install -d -m 0700 /var/lib/hashburst/ha /run/hashburst-ha
+install -d -m 0755 /etc/tmpfiles.d
+install -m 0644 "$ROOT_DIR/ha/hashburst-ha.tmpfiles.conf" /etc/tmpfiles.d/hashburst-ha.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/hashburst-ha.conf
 
 install -m 0755 "$ROOT_DIR/ha/hashburst_ha_agent.py" /opt/hashburst-ha/hashburst_ha_agent.py
 install -m 0755 "$ROOT_DIR/ha/hashburst_ha_agent_v220.py" /opt/hashburst-ha/hashburst_ha_agent_v220.py

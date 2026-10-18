@@ -32,6 +32,14 @@ cat > "$FAKE/systemctl" <<'EOF'
 set -u
 printf '%s\n' "$*" >> /tmp/hb-v215-systemctl.log
 target="${@: -1}"
+if [ "${1:-}" = "show" ]; then
+  if [ -f /tmp/hb-v215-node-active ]; then
+    printf 'LoadState=loaded\nExecStart=/usr/local/bin/hashburst-node\n'
+  else
+    printf 'LoadState=not-found\n'
+  fi
+  exit 0
+fi
 if [ "${1:-}" = "is-active" ]; then
   case "$target" in
     hashburst-node|hashburst-node.service)
