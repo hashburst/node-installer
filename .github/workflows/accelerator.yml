@@ -1,0 +1,33 @@
+name: Mining accelerator candidate
+on:
+  pull_request:
+    paths: ['tools/accelerator/**', 'lib/platform-guard.sh', 'tests/test_platform_guard.sh', 'install.sh', '.github/workflows/accelerator.yml']
+  push:
+    branches: [feat/accelerator-shadow]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tools/accelerator/tests -v
+      - run: python tools/accelerator/accelerator.py doctor
+      - run: python tools/accelerator/build.py HashBurst-Mining-Accelerator-0.1.0.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accelerator-${{ matrix.os }}
+          path: HashBurst-Mining-Accelerator-0.1.0.zip
+  platform-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/test_platform_guard.sh
+      - run: bash -n install.sh lib/platform-guard.sh

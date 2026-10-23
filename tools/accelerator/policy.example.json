@@ -1,0 +1,17 @@
+{
+  "mode": "shadow",
+  "electricity_fiat_kwh": null,
+  "btc_fiat": null,
+  "price_observed_at": null,
+  "max_age_seconds": 900,
+  "history_seconds": 86400,
+  "min_samples": 6,
+  "min_span_seconds": 300,
+  "min_sample_spacing_seconds": 60,
+  "max_temperature_c": 80,
+  "min_improvement_btc_day": 0.000001,
+  "min_improvement_ratio": 0.1,
+  "confidence_multiplier": 2,
+  "allowed_pools": ["Zpool", "Nanopool", "NiceHash", "Kryptex", "MoneroOcean"],
+  "allowed_algorithms": ["RandomX", "Yescrypt", "YescryptR32", "KawPOW", "HoohashPepeW", "MegaBTX", "BC3Hash", "Take2"]
+}
