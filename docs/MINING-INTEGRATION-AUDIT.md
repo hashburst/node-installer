@@ -78,7 +78,7 @@ price were absent. This is an input-validation result, not evidence of increased
 profitability. No worker was switched.
 
 The model is an interpretable statistical baseline, not an LLM or a trained
-Neurallity production model. Configurators can become its downstream output via
+production inference model. Configurators can become its downstream output via
 a schema-validated adapter. The current output is an unsigned recommendation;
 `apply_supported` is false. There is no command dispatcher.
 
@@ -89,10 +89,8 @@ execution and rollback. Evaluate net settled revenue, rejected/stale shares,
 energy, temperature and interruption time against a fixed-profile baseline.
 Do not mix different algorithms' hashrates or attribute HBT rewards to pool work.
 
-The requested patent identifier BI3999M differs from BI3339M in the supplied
-project history. Patent scope and conformity are not established by this audit.
-Keep the pool accelerator separate from the blockchain consensus and the
-Neurallity inference/nonce-partition research paths.
+Patent scope and conformity are not established by this audit. Keep the pool
+accelerator separate from blockchain consensus and unrelated inference research.
 
 ## Unified node architecture and acceptance
 
@@ -137,3 +135,4 @@ atomic accounting. Do not distribute the founder key through an installer.
 
 The current deliverable is a tested observation package and installer guard,
 not the definitive full-node release. No mainnet, faucet or token was activated.
+
