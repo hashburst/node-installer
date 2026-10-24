@@ -14,7 +14,7 @@ import time
 import urllib.request
 import urllib.parse
 
-VERSION = '0.1.0'
+VERSION = '0.1.1'
 MAX_BYTES = 16 * 1024 * 1024
 
 def canonical(v):
@@ -79,7 +79,7 @@ def normalize(worker, salt, now, max_age):
     watts = number(worker['powerdraw'])
     if watts <= 0:
         raise ValueError('missing measured power')
-    temp = number(worker['maxtemp'])
+    temp = 0  # maxtemp is an alert threshold, not a sensor reading.
     workload=[]; revenue=0; accepted=0; rejected=0
     data=worker.get('data')
     if not isinstance(data,list) or not data:
@@ -90,7 +90,10 @@ def normalize(worker, salt, now, max_age):
         slots=[]
         for device in miner.get('Devices',[]):
             slots.append({'id':str(device['Id']), 'name':str(device['Name'])})
-            temp=max(temp,number(device['Temp']))
+            measured = number(device['Temp'])
+            if measured <= 0:
+                raise ValueError('missing measured device temperature')
+            temp=max(temp,measured)
         if not slots:
             raise ValueError('missing device inventory')
         workload.append({'miner':str(miner['Name']), 'version':str(miner['Version']),
@@ -109,6 +112,7 @@ def normalize(worker, salt, now, max_age):
     profile=digest(workload)
     return {'worker':key,'sampled':seen,'profile':profile,'hardware':hardware,'workload':workload,
             'estimated_btc_day':revenue,'watts':watts,'temperature_c':temp,
+            'temperature_source':'device_temp_v1',
             'accepted':accepted,'rejected_or_stale':rejected}
 
 def collect(db, workers, pools, now, max_age=300):
@@ -178,6 +182,8 @@ def recommend(db, p, now):
         latest=history[-1]
         decision={'worker':worker,'action':'hold','current_profile':latest['profile'],'sampled':latest['sampled']}
         out['decisions'].append(decision)
+        if latest.get('temperature_source') != 'device_temp_v1':
+            decision['reason']='new temperature telemetry required after collector upgrade';continue
         health=db.execute('SELECT collected,healthy FROM worker_health WHERE worker=?',(worker,)).fetchone()
         if not health or not health[1] or now-health[0]>p['max_age_seconds']:
             decision['reason']='current worker health not confirmed';continue
@@ -189,6 +195,7 @@ def recommend(db, p, now):
             decision['reason']='electricity cost or fresh BTC price missing';continue
         grouped={}
         for row in history:
+            if row.get('temperature_source') != 'device_temp_v1':continue
             if row['hardware']!=latest['hardware'] or row['temperature_c']>p['max_temperature_c']:continue
             if any(pool not in p['allowed_pools'] for m in row['workload'] for pool in m['pools']):continue
             if any(alg not in p['allowed_algorithms'] for m in row['workload'] for alg in m['algorithms']):continue

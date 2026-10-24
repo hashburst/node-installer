@@ -1,4 +1,4 @@
-# Mining accelerator 0.1.0
+# Mining accelerator 0.1.1
 
 This tool collects RainbowMiner worker telemetry and the HashBurst pool summary.
 It estimates workload performance from historical observations of the same worker
@@ -94,3 +94,12 @@ python3 -m unittest discover -s tests -v
 
 Tests cover stale/invalid data, duplicate samples, redaction, missing economics,
 health regression, profile selection, allowlists and refusal of execution mode.
+
+## Temperature correction in 0.1.1
+
+RainbowMiner's worker maxtemp is the configured notification threshold. Only
+Devices[].Temp is treated as measured temperature. Zero or unavailable readings
+are excluded. Existing database samples without the device_temp_v1 marker are
+retained but excluded from recommendations. Collect fresh samples after upgrade;
+previous proposals must not be used to diagnose actual overheating.
+Source: https://github.com/RainbowMiner/RainbowMiner/issues/1416

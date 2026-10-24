@@ -52,8 +52,22 @@ class Tests(unittest.TestCase):
     def test_current_overtemperature_blocks_older_models(self):
         for i in range(6):self.ingest(worker(1000+i*60,'Nanopool',0.0002),1000+i*60)
         for i in range(6):self.ingest(worker(1400+i*60),1400+i*60)
-        w=worker(1999);w['maxtemp']=99;self.ingest(w,1999)
+        w=worker(1999);w['data'][0]['Devices'][0]['Temp']=99;self.ingest(w,1999)
         self.assertEqual(a.recommend(self.db,self.policy,2000)['decisions'][0]['reason'],'current temperature exceeds policy')
+    def test_alert_threshold_is_not_measured_temperature(self):
+        w=worker(2000);w['maxtemp']=90;self.ingest(w,2000)
+        row=json.loads(self.db.execute('SELECT payload FROM samples').fetchone()[0])
+        self.assertEqual(row['temperature_c'],50)
+    def test_missing_sensor_temperature_excluded(self):
+        w=worker(2000);w['data'][0]['Devices'][0]['Temp']=0
+        self.assertEqual(self.ingest(w,2000)['workers']['excluded'],1)
+    def test_old_normalization_cannot_be_recommended(self):
+        self.ingest(worker(2000),2000)
+        row=json.loads(self.db.execute('SELECT payload FROM samples').fetchone()[0]);del row['temperature_source']
+        self.db.execute('UPDATE samples SET payload=?',(json.dumps(row),));self.db.commit()
+        result=a.recommend(self.db,self.policy,2000)['decisions'][0]
+        self.assertEqual(result['action'],'hold')
+        self.assertIn('upgrade',result['reason'])
     def test_malformed_worker_excluded(self):
         r=a.collect(self.db,[None,worker(2000)],{'generated_at':2000,'pools':[]},2000)
         self.assertEqual(r['workers']['excluded'],1)
