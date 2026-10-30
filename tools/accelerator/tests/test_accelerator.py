@@ -61,6 +61,18 @@ class Tests(unittest.TestCase):
     def test_missing_sensor_temperature_excluded(self):
         w=worker(2000);w['data'][0]['Devices'][0]['Temp']=0
         self.assertEqual(self.ingest(w,2000)['workers']['excluded'],1)
+    def test_partial_missing_sensor_temperature_uses_valid_reading(self):
+        w=worker(2000)
+        w['data'][0]['Devices'].append({'Id':1,'Name':'GPU','Temp':0})
+        self.assertEqual(self.ingest(w,2000)['workers']['inserted'],1)
+        row=json.loads(self.db.execute('SELECT payload FROM samples').fetchone()[0])
+        self.assertEqual(row['temperature_c'],50)
+    def test_unavailable_sensor_temperature_uses_valid_reading(self):
+        w=worker(2000)
+        w['data'][0]['Devices'].append({'Id':1,'Name':'GPU','Temp':None})
+        self.assertEqual(self.ingest(w,2000)['workers']['inserted'],1)
+        row=json.loads(self.db.execute('SELECT payload FROM samples').fetchone()[0])
+        self.assertEqual(row['temperature_c'],50)
     def test_old_normalization_cannot_be_recommended(self):
         self.ingest(worker(2000),2000)
         row=json.loads(self.db.execute('SELECT payload FROM samples').fetchone()[0]);del row['temperature_source']
