@@ -1,4 +1,4 @@
-# HashBurst — Node Installer v2.1.6
+# HashBurst Node Installer v2.1.6
 
 Self-contained HashBurst installer for blockchain, HB-Files sovereign storage,
 private IPFS federation, HB-TEP encrypted transport, replication components and
@@ -38,7 +38,7 @@ That key is a secret and is deliberately **not** stored in this public repositor
 Existing installations keep `/etc/hashburst/swarm.key`; a new non-primary node
 must receive the key through a secure out-of-band channel.
 
-## Quick start — primary full node
+## Quick start: primary full node
 
 ```bash
 sudo ./install.sh --role full --primary --miner
@@ -51,7 +51,7 @@ key, writes that key into the HashBurst node environment, starts the blockchain
 node, obtains its stable blockchain Peer ID, binds TEP to that identity and
 verifies `AES-256-GCM` with `app_ready=true`.
 
-## Quick start — full edge/NAT workstation
+## Quick start: full edge/NAT workstation
 
 The edge machine must already have `/etc/hashburst/swarm.key` or receive the
 same network key as `/tmp/swarm.key` before installation.
@@ -115,7 +115,7 @@ IPC is localhost-only.
 Port contracts:
 
 - `8091`: node storage summary / HB-Files
-- `8093`: mining aggregator — reserved, not used by storage
+- `8093`: mining aggregator, reserved and not used by storage
 - `8094`: storage network aggregator
 - `8095`: replication controller, localhost-only by default
 - `5011`: private Kubo RPC, localhost-only
@@ -152,10 +152,10 @@ gates plus job authorization.
 
 Do not delete these during an update:
 
-- `/etc/hashburst/swarm.key` — private IPFS federation secret
-- `/var/lib/hashburst/node_p2p.key` — stable blockchain/libp2p identity
-- `/var/lib/hashburst/tep/node_x25519.key` — stable TEP X25519 identity
-- `/etc/hashburst/hashburst-tep.env` — TEP runtime configuration
+- `/etc/hashburst/swarm.key`: private IPFS federation secret
+- `/var/lib/hashburst/node_p2p.key`: stable blockchain/libp2p identity
+- `/var/lib/hashburst/tep/node_x25519.key`: stable TEP X25519 identity
+- `/etc/hashburst/hashburst-tep.env`: TEP runtime configuration
 
 v2.1.6 preserves the existing stable identities during reinstall/upgrade and
 treats replacement of an existing `HB_TEP_PEER_ID` as an error rather than
@@ -204,7 +204,7 @@ Release for the final rollout evidence and release state.
 
 ## License
 
-MIT — see `LICENSE`.
+MIT. See `LICENSE`.
 
 ## Archived networks and HA recovery
 
