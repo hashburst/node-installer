@@ -10,7 +10,7 @@ The installer is intended to produce a repeatable node from a published release.
 ## v2.1.6 highlights
 
 - canonical HB-TEP-APP/1 daemon and local IPC
-- X25519 + AES-256-GCM TEP transport
+- X25519 and AES-256-GCM TEP transport
 - automatic, idempotent TEP onboarding for `full` / `blockchain` nodes
 - stable blockchain Peer ID bound to TEP identity
 - TEP public key inserted before blockchain `NODE_REGISTRATION`
@@ -21,7 +21,7 @@ The installer is intended to produce a repeatable node from a published release.
 - running blockchain nodes are restarted only after TEP/bootstrap environment preparation so systemd reloads `EnvironmentFile`
 - NAT/edge relay trust configuration while relay service remains disabled by default
 - storage aggregator TEP transport with separate routing and storage-summary identities
-- production flat-layout support for `hb_aggregator.py` + `hb_tep_adapter.py`
+- production flat-layout support for `hb_aggregator.py` and `hb_tep_adapter.py`
 - durable replication N=3 / M=2 safety inherited from earlier releases
 - Kubo private RPC remains localhost-only
 - edge storage never contributes committable/sellable capacity
@@ -97,12 +97,12 @@ endpoint already observed at runtime.
 
 - UDP transport port: `47777`
 - status/local application IPC: `127.0.0.1:47778`
-- cryptography: X25519 + AES-256-GCM
+- cryptography: X25519 and AES-256-GCM
 - APP protocol: `HB-TEP-APP/1`
 - exposed application service: `storage.summary`
 - relay capability: disabled by default
 - trusted rendezvous: explicitly configured by stable peer ID
-- application requests require pre-registered peer ID + X25519 public key
+- application requests require pre-registered peer ID and X25519 public key
 - heartbeat authentication requires stable X25519 identity and is fail-closed
 - replay protection and authenticated routing are fail-closed
 - the local IPC does not accept arbitrary URLs, ports, methods or headers
@@ -136,7 +136,7 @@ The replication lifecycle introduced in earlier releases remains part of v2.1.6:
 - default desired copies N=3
 - minimum committable copies M=2
 - edge grace 6 hours
-- controller desired-state + pull-based agents
+- controller desired-state and pull-based agents
 - SQLite state and idempotent leases
 - failure-domain-aware placement
 - generation fencing
