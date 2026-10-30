@@ -90,12 +90,16 @@ def normalize(worker, salt, now, max_age):
         slots=[]
         for device in miner.get('Devices',[]):
             slots.append({'id':str(device['Id']), 'name':str(device['Name'])})
-            measured = number(device['Temp'])
-            if measured <= 0:
-                raise ValueError('missing measured device temperature')
-            temp=max(temp,measured)
+            try:
+                measured = number(device.get('Temp'))
+            except ValueError:
+                continue
+            if measured > 0:
+                temp=max(temp,measured)
         if not slots:
             raise ValueError('missing device inventory')
+        if temp <= 0:
+            raise ValueError('missing measured device temperature')
         workload.append({'miner':str(miner['Name']), 'version':str(miner['Version']),
                          'algorithms':strings(miner['Algorithm']), 'pools':strings(miner['Pool']),
                          'devices':sorted(slots,key=canonical)})
